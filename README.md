@@ -17,11 +17,14 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="14 tests passing" src="https://img.shields.io/badge/tests-14%20passing-2ea043?style=for-the-badge">
+<img alt="20 tests passing" src="https://img.shields.io/badge/tests-20%20passing-2ea043?style=for-the-badge">
+<img alt="version 1.0.0" src="https://img.shields.io/badge/version-1.0.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-cs8%20·%20cs16%20·%20IQ%20WAV-6e40c9?style=flat-square">
 <img alt="Report" src="https://img.shields.io/badge/report-offline%20HTML-0f766e?style=flat-square">
+<img alt="Explorer" src="https://img.shields.io/badge/explorer-live%20retune-be123c?style=flat-square">
+<img alt="Dependencies" src="https://img.shields.io/badge/extra%20deps-none-475569?style=flat-square">
 <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux-334155?style=flat-square">
 <img alt="Location" src="https://img.shields.io/badge/observing%20location-not%20required-64748b?style=flat-square">
 </p>
@@ -129,6 +132,24 @@ Each redetect writes its own scan directory and records `redetected_from` in
 `--time-bin`, `--max-rows`) are baked into the cache, so they come from the original
 scan and a conflicting command line is reported and ignored. Clips need the original
 recording; if it has moved away, the run warns and produces everything except `clips/`.
+
+### Retune it live in a browser
+
+```sh
+./scan.sh --serve            # http://127.0.0.1:8731, opens with --open
+./scan.sh --serve 9000 --scan-root ~/captures/scans
+```
+
+Pick any scan that has a cached spectrum, then drag threshold, minimum duration, DC
+exclusion and event count and watch detection redraw over the spectrogram. Each
+re-detect is a **~16 ms** call against the in-memory matrix, so it tracks the slider.
+Click a box or a table row to pair them up.
+
+The app never writes anything. It prints the exact `--redetect` command for whatever
+parameters you land on, and you run that to produce the real report with images and
+clips. Built on `http.server` — **no Flask, no FastAPI, no new dependency** — bound to
+loopback with no authentication, which is the whole security model. Scan IDs are
+validated as direct children of the scan root, so the URL cannot walk the filesystem.
 
 > [!NOTE]
 > `--threshold` is applied *before* regions are formed, not as a filter afterwards.
@@ -297,9 +318,10 @@ filename or path. **The scanner never reads the private location config** — se
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Fourteen tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
-injection and reference handling. Network access is patched off, so the suite is
-hermetic.
+Twenty tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
+injection, reference handling, spectrum caching and the explorer HTTP API. Network
+access is patched off and the explorer is exercised against a real loopback server,
+so the suite is hermetic.
 
 ---
 

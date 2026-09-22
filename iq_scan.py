@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings. No protocol identification."""
+__version__ = '1.0.0'
 import argparse, csv, html, json, math, os, re, shlex, sys, tempfile
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,9 @@ def parser():
     p.add_argument('--min-duration',type=positive,default=.15,help='Minimum transient duration in seconds')
     p.add_argument('--dc-exclude',type=float,default=2000,help='Ignore this many Hz either side of center in detection')
     p.add_argument('--top',type=int,default=20,help='Maximum events in report')
+    p.add_argument('--version',action='version',version=f'iqscan {__version__}')
+    p.add_argument('--serve',nargs='?',const=8731,type=int,metavar='PORT',help='Browse cached spectra and retune detection live in a local browser app')
+    p.add_argument('--scan-root',type=Path,help='Directory of scan folders for --serve; default ./scans')
     p.add_argument('--save-spectrum',action='store_true',help='Also write spectrum.npz so --redetect can rerun detection without recomputing FFTs')
     p.add_argument('--redetect',type=Path,help='Reuse spectrum.npz from a previous scan directory instead of reading the recording again')
     p.add_argument('--clips',type=int,default=10,help='Export this many event clips; 0 disables')
@@ -270,6 +274,9 @@ def main(argv=None):
                 print(f"{source['catalog']}: {source['records']} records | {source.get('downloaded_utc','local file')}")
             print('Reference cache:',args.reference_cache)
             return 2 if catalog['warnings'] else 0
+        if args.serve is not None:
+            import iq_serve
+            return iq_serve.serve(args.scan_root or Path.cwd()/'scans',args.serve,open_browser=args.open)
         if args.file is None and args.redetect is None: raise ValueError('Provide an IQ recording, --redetect DIR, or --update-references')
         cached=load_spectrum(args.redetect) if args.redetect is not None else None
         meta=cached[0] if cached else metadata(args)
