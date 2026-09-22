@@ -7,6 +7,8 @@ loopback; there is no authentication and none is intended.
 """
 import io
 import json
+import shlex
+import sys
 import threading
 import webbrowser
 from argparse import Namespace
@@ -29,17 +31,14 @@ class Spectra:
         self.loaded, self.images = {}, {}
 
     def available(self):
-        import numpy as np
         found = []
         for directory in sorted((p for p in self.root.iterdir() if p.is_dir()), reverse=True):
             path = directory/'spectrum.npz'
             if not path.exists():
                 continue
             try:
-                with np.load(path, allow_pickle=False) as data:      # lazy: reads one entry
-                    meta = json.loads(str(data['meta']))
-                    shaping = json.loads(str(data['spectrum_args']))
-            except (OSError, ValueError, KeyError):
+                meta, shaping = iq_scan.cache_summary(directory)
+            except (OSError, ValueError, KeyError, TypeError, EOFError):
                 continue                                             # a half-written cache is skipped, not fatal
             found.append(dict(id=directory.name, name=Path(meta['input']).name, duration_s=meta['duration_s'],
                 sample_rate=meta['sample_rate'], center_frequency_hz=meta['center_frequency_hz'],
@@ -66,13 +65,14 @@ class Spectra:
     def image(self, scan_id):
         with self.lock:
             if scan_id not in self.images:
-                self.images[scan_id] = waterfall_png(self.get(scan_id)[2])
+                meta, _f, norm, _reference, dt, _shaping = self.get(scan_id)
+                self.images[scan_id] = waterfall_png(norm, meta['duration_s'], dt)
                 if len(self.images) > self.keep:
                     self.images.pop(next(iter(self.images)))
             return self.images[scan_id]
 
 
-def waterfall_png(norm):
+def waterfall_png(norm, duration_s=None, dt=None):
     """Bare data pixels, no axes or padding, so the browser can map events linearly."""
     import numpy as np
     import matplotlib
@@ -83,14 +83,16 @@ def waterfall_png(norm):
     figure = plt.figure(figsize=(width/100, height/100), dpi=100)
     axes = figure.add_axes([0, 0, 1, 1])
     axes.set_axis_off()
-    axes.imshow(norm, aspect='auto', cmap='magma', vmin=-3, vmax=max(12, float(np.percentile(norm, 99.5))))
+    extent=(0,cols,rows*dt if dt is not None else rows,0)
+    axes.imshow(norm, extent=extent, aspect='auto', cmap='magma', vmin=-3, vmax=max(12, float(np.percentile(norm, 99.5))))
+    if duration_s is not None: axes.set_ylim(duration_s,0)
     buffer = io.BytesIO()
     figure.savefig(buffer, format='png', dpi=100)
     plt.close(figure)
     return buffer.getvalue()
 
 
-def detect_params(query, defaults):
+def detect_params(query, defaults, sample_rate=None):
     args = Namespace(**defaults)
     for key, cast in DETECT_ARGS.items():
         if key in query:
@@ -99,16 +101,17 @@ def detect_params(query, defaults):
             except ValueError:
                 raise ValueError(f'{key} must be {cast.__name__}')
             setattr(args, key, value)
-    if args.threshold <= 0 or args.min_duration < 0 or args.dc_exclude < 0 or args.top < 1:
-        raise ValueError('Require threshold > 0, min-duration >= 0, dc-exclude >= 0 and top >= 1')
+    iq_scan.validate_detection_args(args, sample_rate)
     return args
 
 
-def command_for(scan_id, args):
-    parts = [f'./scan.sh --redetect scans/{scan_id}']
+def command_for(scan_id, args, root):
+    scan_path=(Path(root).expanduser().resolve()/scan_id).resolve()
+    module=Path(iq_scan.__file__).resolve()
+    parts = [sys.executable, str(module), '--redetect', str(scan_path)]
     for key in DETECT_ARGS:
-        parts.append(f"--{key.replace('_','-')} {getattr(args, key):g}")
-    return ' '.join(parts)
+        parts.extend((f"--{key.replace('_','-')}", f"{getattr(args, key):g}"))
+    return shlex.join(parts)
 
 
 def handler_for(state, defaults):
@@ -141,10 +144,10 @@ def handler_for(state, defaults):
                     return self.send(200, state.image(scan_id), 'image/png')
                 if url.path == '/api/detect':
                     meta, f, norm, _reference, dt, shaping = state.get(scan_id)
-                    args = detect_params(query, defaults)
+                    args = detect_params(query, defaults, meta['sample_rate'])
                     events = iq_scan.detect(dict(meta), args, f, norm, dt)
                     return self.send_json(dict(events=events, shaping=shaping,
-                        command=command_for(scan_id, args),
+                        command=command_for(scan_id, args, state.root),
                         extent=dict(low_offset_hz=float(f[0]), high_offset_hz=float(f[-1]),
                             duration_s=meta['duration_s'], center_frequency_hz=meta['center_frequency_hz'],
                             sample_rate=meta['sample_rate'])))

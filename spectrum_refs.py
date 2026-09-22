@@ -3,6 +3,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -18,6 +19,14 @@ SATNOGS='https://db.satnogs.org'
 DISCLAIMER='Frequency overlap only: not a decoded identification or evidence the transmitter was active at the recording location. Community band plans may be old, incomplete or locally inaccurate; they are not the authoritative legal allocation table.'
 
 
+def default_reference_cache():
+    """Keep source checkouts self-contained; installed packages use user cache."""
+    local=ROOT/'.cache/spectrum'
+    if (ROOT/'.git').exists(): return local
+    base=Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache')).expanduser()
+    return base/'iqscan'/'spectrum'
+
+
 def add_arguments(p):
     p.add_argument('--bandplan',choices=['us','international','fr','none'],default='us',help='Community band-plan region (not automatically inferred from private location)')
     p.add_argument('--known-signals',choices=['satnogs','none'],default='none',help='Optional transmitter catalog; default is general band/service references only')
@@ -30,7 +39,7 @@ def add_arguments(p):
     p.add_argument('--refresh-references',action='store_true',help='Redownload selected reference catalogs')
     p.add_argument('--offline-references',action='store_true',help='No reference network requests; use cache/local files only')
     p.add_argument('--reference-max-age-days',type=float,default=7,help='Cache download age before refresh; not age of upstream information')
-    p.add_argument('--reference-cache',type=Path,default=ROOT/'.cache/spectrum',help='Local downloaded catalogs, ignored by Git')
+    p.add_argument('--reference-cache',type=Path,default=default_reference_cache(),help='Local downloaded catalogs (XDG cache when installed)')
     p.add_argument('--update-references',action='store_true',help='Download/refresh selected catalogs and exit; no IQ file required')
 
 

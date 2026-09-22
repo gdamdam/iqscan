@@ -131,7 +131,7 @@ last={x,y};draw();let lines=[];
 if(p.kind==='trace'){lines.push('Time '+hms(xv)+' | Axis level '+yv.toFixed(1)+' dB/Hz (digital units)');}
 else{const freq=data.center===null?xv*1000:xv*1e6;const offset=data.center===null?freq:freq-data.center;
 lines.push((data.center===null?'Offset '+(offset/1000).toFixed(3)+' kHz':'Frequency '+(freq/1e6).toFixed(6)+' MHz | Offset '+(offset/1000).toFixed(3)+' kHz'));
-if(p.kind==='waterfall'){lines.unshift('Time '+hms(yv)+' from recording start');decode(p);if(p.levels){let q=p.levels;let row=Math.min(q.rows-1,Math.floor(v*q.full_rows/q.row_step));let col=Math.min(q.cols-1,Math.floor(u*q.full_cols/q.col_step));let level=q.view.getInt16(2*(row*q.cols+col),true)/10;lines.push('Approx. level '+level.toFixed(1)+' dB above reference band (sampled; not SNR)');}
+if(p.kind==='waterfall'){lines.unshift('Time '+hms(yv)+' from recording start');decode(p);if(p.levels){let q=p.levels;let row=p.time_bin_s?Math.floor(Math.max(0,yv-(p.time_origin_s||0))/p.time_bin_s):Math.floor(v*q.full_rows);row=Math.min(q.rows-1,Math.max(0,Math.floor(row/q.row_step)));let col=Math.min(q.cols-1,Math.floor(u*q.full_cols/q.col_step));let level=q.view.getInt16(2*(row*q.cols+col),true)/10;lines.push('Approx. level '+level.toFixed(1)+' dB above reference band (sampled; not SNR)');}
 let ids=data.events.filter(e=>yv>=e.start&&yv<=e.end&&offset>=e.low&&offset<=e.high).map(e=>'#'+e.id);if(ids.length)lines.push('Detected event '+ids.join(', '));}
 if(data.center!==null){let bands=data.bands.filter(b=>freq>=b.low_hz&&freq<b.high_hz).map(b=>b.name);if(bands.length)lines.push('Band reference: '+bands.join('; ')+' — not identification');}
 }

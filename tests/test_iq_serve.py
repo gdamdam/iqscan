@@ -1,6 +1,7 @@
-import json,sys,tempfile,threading,unittest
+import json,shlex,sys,tempfile,threading,unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.request import urlopen
 from urllib.error import HTTPError
 import numpy as np
@@ -52,7 +53,8 @@ class ServeTests(unittest.TestCase):
         expected=iq_scan.detect(dict(meta),args,f,norm,dt)
         payload=json.loads(self.get('/api/detect?scan=run-one&threshold=9')[1])
         self.assertEqual(payload['events'],expected)
-        self.assertIn('--redetect scans/run-one',payload['command'])
+        self.assertIn('--redetect '+str(self.scan.resolve()),payload['command'])
+        self.assertIn(sys.executable+' '+str(Path(iq_scan.__file__).resolve()),payload['command'])
         self.assertIn('--threshold 9',payload['command'])
         # Threshold reshapes regions, so the same burst comes back narrower.
         loose=json.loads(self.get('/api/detect?scan=run-one&threshold=7')[1])['events']
@@ -65,6 +67,12 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertEqual(body[:8],b'\x89PNG\r\n\x1a\n')
 
+    def test_image_uses_analysis_time_extent_for_partial_final_bin(self):
+        with patch('matplotlib.axes.Axes.imshow') as image, patch('matplotlib.axes.Axes.set_ylim') as limits:
+            iq_serve.waterfall_png(np.zeros((2,2)),1.0,.64)
+        self.assertEqual(image.call_args.kwargs['extent'],(0,2,1.28,0))
+        limits.assert_called_once_with(1.0,0)
+
     def test_rejects_traversal_and_unknown_scans(self):
         for bad in ('..','../../etc','','no-cache'):
             with self.assertRaises(ValueError): self.state.resolve(bad)
@@ -73,9 +81,24 @@ class ServeTests(unittest.TestCase):
         self.assertIn('Invalid scan id',json.loads(caught.exception.read())['error'])
 
     def test_rejects_nonsense_parameters(self):
-        for query in ('threshold=0','threshold=abc','top=0','min_duration=-1'):
+        for query in ('threshold=0','threshold=abc','threshold=nan','min_duration=nan','top=0','min_duration=-1','dc_exclude=nan'):
             with self.assertRaises(HTTPError) as caught: self.get('/api/detect?scan=run-one&'+query)
             self.assertEqual(caught.exception.code,400)
+
+    def test_accepts_zero_minimum_duration_and_quotes_custom_paths(self):
+        status,body=self.get('/api/detect?scan=run-one&min_duration=0')
+        self.assertEqual(status,200)
+        args=iq_serve.detect_params({'min_duration':['0']},{k:getattr(iq_scan.parser().parse_args([]),k) for k in iq_serve.DETECT_ARGS},32000)
+        scan_id='scan;$(touch pwned)'
+        command=iq_serve.command_for(scan_id,args,Path('/tmp/custom scans'))
+        self.assertEqual(shlex.split(command)[3],str((Path('/tmp/custom scans').resolve()/scan_id).resolve()))
+
+    def test_skips_truncated_and_invalid_caches(self):
+        bad=self.scans/'truncated';bad.mkdir();(bad/'spectrum.npz').write_bytes(b'PK\x03\x04truncated')
+        malformed=self.scans/'malformed';malformed.mkdir()
+        np.savez(malformed/'spectrum.npz',f=np.array([1]),norm=np.zeros((2,1)),reference=np.zeros(2),dt=.1,
+                 meta=json.dumps({'rows':2}),spectrum_args=json.dumps({'fft_size':1}))
+        self.assertEqual([scan['id'] for scan in self.state.available()],['run-one'])
 
     def test_serve_refuses_a_root_without_caches(self):
         with tempfile.TemporaryDirectory() as empty:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings. No protocol identification."""
-__version__ = '1.0.0'
-import argparse, csv, html, json, math, os, re, shlex, sys, tempfile
+__version__ = '1.1.0'
+import argparse, csv, html, json, math, os, re, shlex, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +22,12 @@ def positive(value):
     return x
 
 
+def nonnegative(value):
+    x=float(value)
+    if not math.isfinite(x) or x<0: raise argparse.ArgumentTypeError('Must be nonnegative and finite')
+    return x
+
+
 def parser():
     p=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('file',type=Path,nargs='?')
@@ -34,7 +40,7 @@ def parser():
     p.add_argument('--time-bin',type=positive,default=.1,help='Requested time resolution in seconds')
     p.add_argument('--max-rows',type=int,default=2000,help='Bound analysis memory; long files get coarser time bins')
     p.add_argument('--threshold',type=positive,default=7,help='Transient excess above each frequency baseline, dB')
-    p.add_argument('--min-duration',type=positive,default=.15,help='Minimum transient duration in seconds')
+    p.add_argument('--min-duration',type=nonnegative,default=.15,help='Minimum transient duration in seconds')
     p.add_argument('--dc-exclude',type=float,default=2000,help='Ignore this many Hz either side of center in detection')
     p.add_argument('--top',type=int,default=20,help='Maximum events in report')
     p.add_argument('--version',action='version',version=f'iqscan {__version__}')
@@ -49,6 +55,36 @@ def parser():
     from spectrum_refs import add_arguments
     add_arguments(p)
     return p
+
+
+def validate_detection_args(args, sample_rate=None):
+    """Validate values shared by CLI, cached redetection, and the explorer."""
+    if not math.isfinite(args.threshold) or args.threshold<=0:
+        raise ValueError('--threshold must be positive and finite')
+    if not math.isfinite(args.min_duration) or args.min_duration<0:
+        raise ValueError('--min-duration must be nonnegative and finite')
+    if not math.isfinite(args.dc_exclude) or args.dc_exclude<0:
+        raise ValueError('--dc-exclude must be nonnegative and finite')
+    if args.top<1:
+        raise ValueError('--top must be at least 1')
+    if sample_rate is not None and args.dc_exclude>=sample_rate*.45:
+        raise ValueError('--dc-exclude must be below 45% of sample rate')
+
+
+def validate_args(args, sample_rate=None):
+    validate_detection_args(args, sample_rate)
+    if not math.isfinite(args.time_bin) or args.time_bin<=0:
+        raise ValueError('--time-bin must be positive and finite')
+    if not 10<=args.max_rows<=10000:
+        raise ValueError('--max-rows must be 10..10000')
+    if args.fft_size<256 or args.fft_size>16384 or args.fft_size&(args.fft_size-1):
+        raise ValueError('--fft-size must be a power of two from 256 to 16384')
+    if args.clips<0:
+        raise ValueError('--clips must be nonnegative')
+    if not math.isfinite(args.padding) or args.padding<0:
+        raise ValueError('--padding must be nonnegative and finite')
+    if not math.isfinite(args.max_clip_seconds) or args.max_clip_seconds<=0:
+        raise ValueError('--max-clip-seconds must be positive and finite')
 
 
 def metadata(args):
@@ -70,10 +106,7 @@ def metadata(args):
     if fs is None or fs<=0: raise ValueError('Sample rate missing: provide --sample-rate 500000 (complex samples/sec)')
     size=wav['bytes'] if wav else path.stat().st_size; bpc=2 if fmt=='cs8' else 4
     if size==0 or size%bpc: raise ValueError('File is empty or ends with an incomplete IQ sample')
-    if args.fft_size<256 or args.fft_size>16384 or args.fft_size&(args.fft_size-1): raise ValueError('--fft-size must be a power of two from 256 to 16384')
-    if not 10<=args.max_rows<=10000 or args.top<1 or args.clips<0: raise ValueError('Require max-rows 10..10000, top >=1 and clips >=0')
-    if not math.isfinite(args.dc_exclude) or not 0<=args.dc_exclude<fs*.45: raise ValueError('--dc-exclude must be nonnegative and below 45% of sample rate')
-    if not math.isfinite(args.padding) or args.padding<0: raise ValueError('--padding must be nonnegative')
+    validate_args(args, fs)
     if size//bpc<args.fft_size: raise ValueError('Recording is shorter than one FFT; reduce --fft-size')
     return dict(input=str(path),data_offset=wav['data_offset'] if wav else 0,container=wav['container'] if wav else 'raw',input_warning=wav.get('warning') if wav else None,format=fmt,sample_rate=fs,center_frequency_hz=center,bytes=size,bytes_per_complex=bpc,samples=size//bpc,duration_s=size/bpc/fs)
 
@@ -119,33 +152,109 @@ def save_spectrum(meta,spectrum_args,f,norm,reference,dt,out):
         dt=dt,meta=json.dumps(meta),spectrum_args=json.dumps(spectrum_args))
 
 
+def validate_cache_metadata(meta, shaping, dt):
+    """Reject malformed metadata before detection, rendering, or clip extraction."""
+    if not isinstance(meta, dict) or not isinstance(shaping, dict):
+        raise ValueError('Invalid spectrum cache metadata')
+    def finite_positive(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+    required = ('input', 'format', 'center_frequency_hz', 'rows', 'samples', 'bytes',
+                'bytes_per_complex', 'sample_rate', 'duration_s', 'frequency_bin_hz')
+    if any(key not in meta for key in required):
+        raise ValueError('Incomplete spectrum cache metadata')
+    if not isinstance(meta['input'], str) or not meta['input'] or meta['format'] not in ('cs8', 'cs16'):
+        raise ValueError('Invalid spectrum cache input metadata')
+    for key in ('sample_rate', 'duration_s', 'frequency_bin_hz'):
+        if not finite_positive(meta[key]): raise ValueError(f'Invalid cached {key}')
+    for key in ('rows', 'samples', 'bytes', 'bytes_per_complex'):
+        if type(meta[key]) is not int or meta[key] <= 0: raise ValueError(f'Invalid cached {key}')
+    center = meta['center_frequency_hz']
+    if center is not None and not finite_positive(center): raise ValueError('Invalid cached center frequency')
+    offset = meta.get('data_offset', 0)
+    if type(offset) is not int or offset < 0: raise ValueError('Invalid cached data offset')
+    bpc = 2 if meta['format'] == 'cs8' else 4
+    if meta['bytes_per_complex'] != bpc or meta['bytes'] != meta['samples'] * bpc:
+        raise ValueError('Inconsistent cached sample sizes')
+    if not math.isclose(meta['duration_s'], meta['samples'] / meta['sample_rate']):
+        raise ValueError('Inconsistent cached duration')
+    if not finite_positive(dt) or not (meta['rows'] - 1) * dt < meta['duration_s'] <= meta['rows'] * dt:
+        raise ValueError('Invalid cached time bins')
+    n = shaping.get('fft_size')
+    max_rows = shaping.get('max_rows')
+    if type(n) is not int or not 256 <= n <= 16384 or n & (n - 1):
+        raise ValueError('Invalid cached FFT size')
+    if type(max_rows) is not int or not 10 <= max_rows <= 10000 or not finite_positive(shaping.get('time_bin')):
+        raise ValueError('Invalid cached FFT shaping')
+    if not math.isclose(meta['frequency_bin_hz'], meta['sample_rate'] / n):
+        raise ValueError('Inconsistent cached frequency bins')
+
+
+def cache_summary(directory):
+    """Read only small metadata entries; matrices are validated when selected."""
+    import numpy as np
+    path = Path(directory).expanduser().resolve() / 'spectrum.npz'
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            if not {'meta', 'spectrum_args', 'f', 'norm', 'reference', 'dt'} <= set(data.files):
+                raise ValueError('Incomplete spectrum cache')
+            meta = json.loads(str(data['meta']))
+            shaping = json.loads(str(data['spectrum_args']))
+            dt = float(data['dt'])
+        validate_cache_metadata(meta, shaping, dt)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, EOFError, zipfile.BadZipFile) as exc:
+        raise ValueError(f'Invalid spectrum cache: {path}: {exc}') from exc
+    return meta, shaping
+
+
 def load_spectrum(directory):
     import numpy as np
-    path=Path(directory).expanduser().resolve()/'spectrum.npz'
-    if not path.exists(): raise ValueError(f'No spectrum.npz in {directory}. Rerun that scan with --save-spectrum.')
-    with np.load(path,allow_pickle=False) as data:
-        return (json.loads(str(data['meta'])),data['f'],data['norm'],data['reference'],
-                float(data['dt']),json.loads(str(data['spectrum_args'])))
+    path = Path(directory).expanduser().resolve() / 'spectrum.npz'
+    if not path.exists():
+        raise ValueError(f'No spectrum.npz in {directory}. Rerun that scan with --save-spectrum.')
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            meta = json.loads(str(data['meta']))
+            shaping = json.loads(str(data['spectrum_args']))
+            dt = float(data['dt'])
+            validate_cache_metadata(meta, shaping, dt)
+            f, norm, reference = data['f'], data['norm'], data['reference']
+        if (f.shape != (shaping['fft_size'],) or norm.shape != (meta['rows'], len(f))
+                or reference.shape != (meta['rows'],)
+                or any(a.dtype.kind not in 'fiu' or not np.isfinite(a).all() for a in (f, norm, reference))):
+            raise ValueError('Invalid spectrum cache arrays')
+        expected = np.fft.fftshift(np.fft.fftfreq(len(f), 1 / meta['sample_rate']))
+        if not np.allclose(f, expected): raise ValueError('Invalid cached frequency axis')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, EOFError, zipfile.BadZipFile) as exc:
+        raise ValueError(f'Invalid spectrum cache: {path}: {exc}') from exc
+    return meta, f, norm, reference, dt, shaping
+
+
+def time_edges(duration, dt, rows):
+    """Return analysis-bin edges, shortening the final edge to recording duration."""
+    return [min(i*dt, duration) for i in range(rows+1)]
 
 
 def detect(meta,args,f,norm,dt):
     import numpy as np
     from scipy.ndimage import label,find_objects,median_filter
+    validate_detection_args(args, meta['sample_rate'])
     baseline=np.median(norm,axis=0); excess=norm-baseline[None,:]
     valid=(abs(f)>args.dc_exclude)&(abs(f)<meta['sample_rate']*.45)
     mask=(excess>=args.threshold)&valid[None,:]
     labs,_=label(mask);events=[];df=meta['frequency_bin_hz']
+    edges=time_edges(meta['duration_s'],dt,len(norm))
     def event(kind,ti,fi,peak,power,pixels):
-        start=ti.start*dt;end=min(ti.stop*dt,meta['duration_s'])
+        start=edges[ti.start];end=edges[min(ti.stop,len(norm))]
+        peak_start=edges[peak];peak_time=peak_start+(edges[peak+1]-peak_start)/2
         return dict(kind=kind,start_s=round(start,6),end_s=round(end,6),duration_s=round(end-start,6),
             low_offset_hz=round(float(f[fi.start]-df/2),3),high_offset_hz=round(float(f[fi.stop-1]+df/2),3),
             center_offset_hz=round(float((f[fi.start]+f[fi.stop-1])/2),3),
-            bandwidth_hz=round((fi.stop-fi.start)*df,3),peak_time_s=round(min((peak+.5)*dt,meta['duration_s']),6),
+            bandwidth_hz=round((fi.stop-fi.start)*df,3),peak_time_s=round(peak_time,6),
             contrast_db=round(float(power),2),pixels=int(pixels))
     for i,sl in enumerate(find_objects(labs),1):
         if sl is None:continue
         ti,fi=sl;region=labs[sl]==i;pixels=int(region.sum())
-        if pixels<4 or min(ti.stop*dt,meta['duration_s'])-ti.start*dt<args.min_duration:continue
+        if pixels<4 or edges[min(ti.stop,len(norm))]-edges[ti.start]<args.min_duration:continue
         local=np.where(region,excess[sl],-np.inf);loc=np.unravel_index(local.argmax(),local.shape)
         events.append(event('transient',ti,fi,ti.start+loc[0],local[loc],pixels))
     # Persistent narrow peaks relative to nearby frequencies; not satellite IDs.
@@ -202,7 +311,8 @@ def report(meta,args,events,f,norm,reference,dt,out):
     center=meta['center_frequency_hz'];freq=(f+(center or 0))/(1e6 if center else 1e3)
     unit='Frequency (MHz)' if center else 'Offset (kHz)'
     fig,(ax,bx)=plt.subplots(2,1,figsize=(13,9),layout='constrained',gridspec_kw={'height_ratios':[4,1]})
-    im=ax.imshow(norm,extent=(freq[0],freq[-1],meta['duration_s'],0),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(norm,99.5))))
+    im=ax.imshow(norm,extent=(freq[0],freq[-1],len(norm)*dt,0),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(norm,99.5))))
+    ax.set_ylim(meta['duration_s'],0)
     ax.set(xlabel=unit,ylabel='Elapsed time (hh:mm:ss.mmm)',title='Candidate activity — broadband level changes removed')
     ax.yaxis.set_major_formatter(time_ticks)
     ax.ticklabel_format(useOffset=False,axis='x')
@@ -210,10 +320,13 @@ def report(meta,args,events,f,norm,reference,dt,out):
         x=((center or 0)+e['center_offset_hz'])/(1e6 if center else 1e3)
         ax.annotate(str(e['id']),(x,e['peak_time_s']),xytext=(5,0),textcoords='offset points',color='cyan',fontsize=9,bbox=dict(facecolor='black',alpha=.6,edgecolor='none'))
     fig.colorbar(im,ax=ax,label='dB above per-time reference band')
-    bx.plot(np.minimum((np.arange(len(reference))+.5)*dt,meta['duration_s']),reference,lw=.8)
+    edges=time_edges(meta['duration_s'],dt,len(reference))
+    bx.plot((np.asarray(edges[:-1])+np.asarray(edges[1:]))/2,reference,lw=.8)
     bx.xaxis.set_major_formatter(time_ticks)
     bx.set(xlabel='Elapsed time (hh:mm:ss.mmm)',ylabel='Reference PSD\n(digital dB/Hz)',title='Broadband level: gain changes and interference can affect this trace');fig.savefig(out/'waterfall.png',dpi=140)
-    plots['waterfall.png']=[panel(fig,ax,'waterfall',norm),panel(fig,bx,'trace')]
+    overview=panel(fig,ax,'waterfall',norm)
+    overview.update(time_origin_s=0,time_bin_s=dt)
+    plots['waterfall.png']=[overview,panel(fig,bx,'trace')]
     plt.close(fig)
     images=out/'images';images.mkdir()
     for e in events:
@@ -224,13 +337,16 @@ def report(meta,args,events,f,norm,reference,dt,out):
         if ib<=ia or not fi.any():continue
         fig,ax=plt.subplots(figsize=(9,5),layout='constrained')
         section=norm[ia:ib][:,fi]
-        im=ax.imshow(section,extent=(freq[fi][0],freq[fi][-1],min(ib*dt,meta['duration_s']),ia*dt),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(section,99.5))))
+        im=ax.imshow(section,extent=(freq[fi][0],freq[fi][-1],ib*dt,ia*dt),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(section,99.5))))
+        ax.set_ylim(min(ib*dt,meta['duration_s']),ia*dt)
         ax.set(xlabel=unit,ylabel='Original elapsed time (hh:mm:ss.mmm)',title=f"Event {e['id']} | {e['kind']} | unidentified activity")
         ax.yaxis.set_major_formatter(time_ticks)
         ax.ticklabel_format(useOffset=False,axis='x')
         fig.colorbar(im,ax=ax,label='dB above per-time reference band')
         name=f"images/event-{e['id']:02d}.png";fig.savefig(out/name,dpi=150)
-        plots[name]=[panel(fig,ax,'waterfall',section)]
+        event_panel=panel(fig,ax,'waterfall',section)
+        event_panel.update(time_origin_s=ia*dt,time_bin_s=dt)
+        plots[name]=[event_panel]
         plt.close(fig);e['image']=name
     for e in events:
         for key in ('start_s','end_s','duration_s','peak_time_s','clip_start_original_s','clip_duration_s','event_start_in_clip_s'):
@@ -280,6 +396,10 @@ def main(argv=None):
         if args.file is None and args.redetect is None: raise ValueError('Provide an IQ recording, --redetect DIR, or --update-references')
         cached=load_spectrum(args.redetect) if args.redetect is not None else None
         meta=cached[0] if cached else metadata(args)
+        if cached:
+            for key in SPECTRUM_ARGS:
+                setattr(args,key,cached[5][key])
+        validate_args(args, meta['sample_rate'])
         out=(args.output or Path.cwd()/'scans'/(Path(meta['input']).stem+'_'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))).expanduser().resolve()
         if out.exists():raise ValueError(f'Output already exists; choose a new directory: {out}')
         catalog=load_references(args) if meta['center_frequency_hz'] is not None else dict(bands=[],signals=[],sources=[],warnings=[],region=args.bandplan)

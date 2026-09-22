@@ -17,8 +17,8 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="20 tests passing" src="https://img.shields.io/badge/tests-20%20passing-2ea043?style=for-the-badge">
-<img alt="version 1.0.0" src="https://img.shields.io/badge/version-1.0.0-0f766e?style=for-the-badge">
+<img alt="25 tests passing" src="https://img.shields.io/badge/tests-25%20passing-2ea043?style=for-the-badge">
+<img alt="version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-cs8%20·%20cs16%20·%20IQ%20WAV-6e40c9?style=flat-square">
@@ -54,6 +54,16 @@ Filename doesn't carry its metadata? Say so explicitly:
 > Use the **saved complex sample rate after decimation**, not necessarily the receiver
 > input rate. Without a center frequency the results show offsets from center instead of
 > absolute frequencies, and automatic reference matching is skipped.
+
+To install the command for use outside this checkout:
+
+```sh
+python3 -m pip install .
+iqscan /path/to/recording_500000SPS_137900000Hz.cs8
+```
+
+The source checkout also provides `./scan.sh`, which creates its local virtual environment
+on first use. Installed commands use the Python environment that installed `iqscan`.
 
 ---
 
@@ -243,8 +253,9 @@ The default 5 kHz tolerance covers modest Doppler and tuning error and applies o
 known-signal matching, never to band boundaries. Per-event matches sort by distance to the
 detected interval, then by reference width.
 
-Caches live in `.cache/spectrum/` (Git-ignored) and refresh after seven days
-(`--reference-max-age-days`). Download age is not the age of the information inside.
+Caches live in `.cache/spectrum/` for a source checkout, or in
+`$XDG_CACHE_HOME/iqscan/spectrum/` (usually `~/.cache/iqscan/spectrum/`) when installed,
+and refresh after seven days (`--reference-max-age-days`). Download age is not the age of the information inside.
 Failed downloads fall back to a validated cache with warnings; with no cache the scan
 continues and clearly reports the missing source. `--update-references` exits nonzero on
 reference warnings or failure. `--reference-cache` selects another directory.
@@ -318,7 +329,7 @@ filename or path. **The scanner never reads the private location config** — se
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Twenty tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
+Twenty-five tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
 injection, reference handling, spectrum caching and the explorer HTTP API. Network
 access is patched off and the explorer is exercised against a real loopback server,
 so the suite is hermetic.

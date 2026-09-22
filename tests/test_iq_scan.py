@@ -32,6 +32,14 @@ class ScannerTests(unittest.TestCase):
             p.write_bytes(bytes(8193))
             with self.assertRaisesRegex(ValueError,'incomplete'):iq_scan.metadata(iq_scan.parser().parse_args([str(p),'--sample-rate','32000']))
 
+    def test_final_partial_time_bin_uses_actual_recording_end(self):
+        args=iq_scan.parser().parse_args(['--sample-rate','32000','--threshold','1','--min-duration','0','--dc-exclude','0'])
+        meta={'sample_rate':32000,'duration_s':1.0,'frequency_bin_hz':1000,'center_frequency_hz':None}
+        f=np.array([-8000.,-4000.,4000.,8000.]);norm=np.array([[0.,0.,0.,0.],[10.,10.,10.,10.]])
+        events=iq_scan.detect(meta,args,f,norm,.64)
+        self.assertEqual(len(events),1)
+        self.assertEqual((events[0]['start_s'],events[0]['end_s'],events[0]['peak_time_s']),(.64,1.0,.82))
+
     def test_output_directory_not_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'test_32000SPS.cs8';p.write_bytes(bytes(8192))
@@ -59,6 +67,8 @@ class ScannerTests(unittest.TestCase):
             # A stricter threshold reshapes regions, so redetect must differ from the source scan.
             strict=root/'strict'
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(strict),*quiet,'--threshold','25']),0)
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-top'),*quiet,'--top','0']),2)
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-dc'),*quiet,'--dc-exclude','nan']),2)
             first=json.loads((base/'events.json').read_text())['events']
             after=json.loads((strict/'events.json').read_text())['events']
             self.assertTrue(first and after)

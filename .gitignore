@@ -1,5 +1,8 @@
 # Local environments, caches and generated scan output
 .venv/
+build/
+dist/
+*.egg-info/
 .cache/
 __pycache__/
 *.py[cod]
