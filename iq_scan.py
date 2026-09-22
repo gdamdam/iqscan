@@ -36,6 +36,8 @@ def parser():
     p.add_argument('--min-duration',type=positive,default=.15,help='Minimum transient duration in seconds')
     p.add_argument('--dc-exclude',type=float,default=2000,help='Ignore this many Hz either side of center in detection')
     p.add_argument('--top',type=int,default=20,help='Maximum events in report')
+    p.add_argument('--save-spectrum',action='store_true',help='Also write spectrum.npz so --redetect can rerun detection without recomputing FFTs')
+    p.add_argument('--redetect',type=Path,help='Reuse spectrum.npz from a previous scan directory instead of reading the recording again')
     p.add_argument('--clips',type=int,default=10,help='Export this many event clips; 0 disables')
     p.add_argument('--padding',type=float,default=1,help='Clip padding on each side, seconds')
     p.add_argument('--max-clip-seconds',type=positive,default=10,help='Cap each clip; long events are clipped around strongest time')
@@ -100,6 +102,28 @@ def spectrum(meta,args):
     return f,norm,reference,dt
 
 
+# Only what shapes the cached matrix. dc_exclude and threshold live in detect(),
+# so a redetect run is free to change them.
+SPECTRUM_ARGS = ('fft_size','time_bin','max_rows')
+
+
+def save_spectrum(meta,spectrum_args,f,norm,reference,dt,out):
+    import numpy as np
+    # The normalized matrix is what detect() consumes; caching it skips rereading the
+    # recording and recomputing every FFT when only detection parameters change.
+    np.savez(out/'spectrum.npz',f=f,norm=norm.astype(np.float32),reference=reference,
+        dt=dt,meta=json.dumps(meta),spectrum_args=json.dumps(spectrum_args))
+
+
+def load_spectrum(directory):
+    import numpy as np
+    path=Path(directory).expanduser().resolve()/'spectrum.npz'
+    if not path.exists(): raise ValueError(f'No spectrum.npz in {directory}. Rerun that scan with --save-spectrum.')
+    with np.load(path,allow_pickle=False) as data:
+        return (json.loads(str(data['meta'])),data['f'],data['norm'],data['reference'],
+                float(data['dt']),json.loads(str(data['spectrum_args'])))
+
+
 def detect(meta,args,f,norm,dt):
     import numpy as np
     from scipy.ndimage import label,find_objects,median_filter
@@ -137,6 +161,9 @@ def detect(meta,args,f,norm,dt):
 
 
 def clips(meta,args,events,out):
+    # Open the recording only when clips are actually wanted; a redetect run may no
+    # longer have the original file.
+    if not args.clips: return
     folder=out/'clips';folder.mkdir()
     with open(meta['input'],'rb') as src:
         for e in events[:args.clips]:
@@ -243,21 +270,33 @@ def main(argv=None):
                 print(f"{source['catalog']}: {source['records']} records | {source.get('downloaded_utc','local file')}")
             print('Reference cache:',args.reference_cache)
             return 2 if catalog['warnings'] else 0
-        if args.file is None: raise ValueError('Provide an IQ recording, or use --update-references')
-        meta=metadata(args)
+        if args.file is None and args.redetect is None: raise ValueError('Provide an IQ recording, --redetect DIR, or --update-references')
+        cached=load_spectrum(args.redetect) if args.redetect is not None else None
+        meta=cached[0] if cached else metadata(args)
         out=(args.output or Path.cwd()/'scans'/(Path(meta['input']).stem+'_'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))).expanduser().resolve()
         if out.exists():raise ValueError(f'Output already exists; choose a new directory: {out}')
         catalog=load_references(args) if meta['center_frequency_hz'] is not None else dict(bands=[],signals=[],sources=[],warnings=[],region=args.bandplan)
         import numpy, scipy
         with tempfile.TemporaryDirectory(prefix='iq-scan-') as tmp:
             os.environ.setdefault('MPLCONFIGDIR',tmp)
-            f,norm,reference,dt=spectrum(meta,args)
+            if cached:
+                _cached_meta,f,norm,reference,dt,spectrum_args=cached
+                meta['redetected_from']=str(Path(args.redetect).expanduser().resolve())
+                print('Reusing cached spectrum; FFT shaping comes from that scan ('
+                    +', '.join(f'{k}={v}' for k,v in spectrum_args.items())+'), not this command line.',file=sys.stderr)
+            else:
+                f,norm,reference,dt=spectrum(meta,args)
+                spectrum_args={k:getattr(args,k) for k in SPECTRUM_ARGS}
             print(f'Resolution: {format_time(dt)}, {meta["frequency_bin_hz"]:.1f} Hz; narrow/short signals may be diluted.',file=sys.stderr)
             events=detect(meta,args,f,norm,dt)
             describe(meta,events,catalog,args)
             out.mkdir(parents=True)
+            if args.clips and not Path(meta['input']).exists():
+                print(f"WARNING: {meta['input']} is gone; skipping clip export. Detection and images are unaffected.",file=sys.stderr)
+                args.clips=0
             clips(meta,args,events,out)
             report(meta,args,events,f,norm,reference,dt,out)
+            if args.save_spectrum: save_spectrum(meta,spectrum_args,f,norm,reference,dt,out)
         colored=args.color=='always' or args.color=='auto' and sys.stdout.isatty() and 'NO_COLOR' not in os.environ and os.environ.get('TERM')!='dumb'
         paint=lambda s:f'\033[96m{s}\033[0m' if colored else s
         print(paint('\nIQ SCAN — candidate activity'))

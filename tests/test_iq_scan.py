@@ -1,4 +1,4 @@
-import sys,unittest,tempfile
+import json,sys,unittest,tempfile
 from pathlib import Path
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -36,5 +36,55 @@ class ScannerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'test_32000SPS.cs8';p.write_bytes(bytes(8192))
             self.assertEqual(iq_scan.main([str(p),'--output',tmp]),2)
+
+    def test_spectrum_cache_roundtrip_and_redetect(self):
+        fs=32000;n=fs*3;t=np.arange(n)/fs
+        rng=np.random.default_rng(4)
+        z=.02*(rng.normal(size=n)+1j*rng.normal(size=n))
+        z+=.12*np.exp(2j*np.pi*7000*t)*((t>=1)&(t<1.6))
+        shape=['--fft-size','1024','--time-bin','.032']
+        quiet=['--bandplan','none','--known-signals','none','--clips','0']
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);path=root/'test_32000SPS_137900000Hz.cs8'
+            np.clip(np.round(np.column_stack((z.real,z.imag))*128),-128,127).astype('i1').tofile(path)
+            base=root/'first'
+            self.assertEqual(iq_scan.main([str(path),'--output',str(base),*shape,*quiet,'--save-spectrum']),0)
+            self.assertTrue((base/'spectrum.npz').exists())
+            # The cached matrix reproduces a freshly computed one, so redetect is faithful.
+            meta,f,norm,ref,dt,spectrum_args=iq_scan.load_spectrum(base)
+            self.assertEqual(spectrum_args,{'fft_size':1024,'time_bin':.032,'max_rows':2000})
+            args=iq_scan.parser().parse_args([str(path),*shape])
+            fresh=iq_scan.spectrum(iq_scan.metadata(args),args)[1]
+            np.testing.assert_allclose(norm,fresh,rtol=0,atol=1e-4)
+            # A stricter threshold reshapes regions, so redetect must differ from the source scan.
+            strict=root/'strict'
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(strict),*quiet,'--threshold','25']),0)
+            first=json.loads((base/'events.json').read_text())['events']
+            after=json.loads((strict/'events.json').read_text())['events']
+            self.assertTrue(first and after)
+            # Threshold reshapes the region itself, so the same burst comes back narrower.
+            self.assertLess(after[0]['bandwidth_hz'],first[0]['bandwidth_hz'])
+            self.assertEqual(json.loads((strict/'events.json').read_text())['metadata']['redetected_from'],str(base.resolve()))
+            # FFT shaping comes from the cache even when the command line disagrees.
+            ignored=root/'ignored'
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(ignored),*quiet,'--fft-size','256']),0)
+            self.assertEqual(json.loads((ignored/'events.json').read_text())['metadata']['frequency_bin_hz'],meta['frequency_bin_hz'])
+            # A directory without a cached spectrum says what to do about it.
+            with self.assertRaisesRegex(ValueError,'--save-spectrum'):iq_scan.load_spectrum(strict)
+
+    def test_redetect_without_the_recording_skips_clips(self):
+        fs=32000;n=fs*2;t=np.arange(n)/fs
+        z=.02*np.random.default_rng(1).normal(size=n)+.1*np.exp(2j*np.pi*5000*t)*((t>=.5)&(t<1.2))
+        quiet=['--bandplan','none','--known-signals','none']
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);path=root/'gone_32000SPS_137900000Hz.cs8'
+            np.clip(np.round(np.column_stack((z.real,z.imag))*128),-128,127).astype('i1').tofile(path)
+            base=root/'first'
+            self.assertEqual(iq_scan.main([str(path),'--output',str(base),'--fft-size','1024','--time-bin','.032','--clips','0',*quiet,'--save-spectrum']),0)
+            path.unlink()
+            again=root/'again'
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(again),*quiet,'--clips','5']),0)
+            self.assertFalse((again/'clips').exists())
+            self.assertTrue((again/'report.html').exists())
 
 if __name__=='__main__':unittest.main()

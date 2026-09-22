@@ -109,6 +109,35 @@ images still describe the full detected interval.
 ./scan.sh --help
 ```
 
+### Retune detection without rescanning
+
+Changing a threshold normally means rereading the whole recording and recomputing every
+FFT. `--save-spectrum` writes the normalized matrix that detection consumes, and
+`--redetect` picks it up:
+
+```sh
+./scan.sh capture.cs8 --sample-rate 500000 --save-spectrum   # scan once, keep the matrix
+./scan.sh --redetect scans/<that-run> --threshold 9          # seconds, not minutes
+./scan.sh --redetect scans/<that-run> --threshold 4 --top 40 --dc-exclude 0
+```
+
+Redetection reuses the cached detection matrix, capped by `--max-rows`.
+
+Each redetect writes its own scan directory and records `redetected_from` in
+`events.json`. Detection parameters — `--threshold`, `--min-duration`, `--top`,
+`--dc-exclude` — are all fair game. The FFT-shaping options (`--fft-size`,
+`--time-bin`, `--max-rows`) are baked into the cache, so they come from the original
+scan and a conflicting command line is reported and ignored. Clips need the original
+recording; if it has moved away, the run warns and produces everything except `clips/`.
+
+> [!NOTE]
+> `--threshold` is applied *before* regions are formed, not as a filter afterwards.
+> Raising it does not merely drop weak events — it shrinks and splits the surviving
+> ones, changing their duration, bandwidth and rank. That is why a real redetect exists
+> instead of a slider over a fixed event list.
+
+---
+
 <details>
 <summary><b>How detection actually works — and where it lies to you</b></summary>
 
