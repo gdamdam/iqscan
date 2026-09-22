@@ -17,7 +17,7 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="12 tests passing" src="https://img.shields.io/badge/tests-12%20passing-2ea043?style=for-the-badge">
+<img alt="14 tests passing" src="https://img.shields.io/badge/tests-14%20passing-2ea043?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-cs8%20·%20cs16%20·%20IQ%20WAV-6e40c9?style=flat-square">
@@ -297,7 +297,7 @@ filename or path. **The scanner never reads the private location config** — se
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Twelve tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
+Fourteen tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
 injection and reference handling. Network access is patched off, so the suite is
 hermetic.
 
