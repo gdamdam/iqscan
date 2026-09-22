@@ -23,6 +23,8 @@ py-modules = [
   "iq_serve",
   "iq_wav",
   "report_interactive",
+  "signal_analysis",
+  "protocol_decode",
   "spectrum_refs",
 ]
 

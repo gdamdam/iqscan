@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Find candidate activity in signed complex IQ recordings. No protocol identification."""
-__version__ = '1.1.0'
+"""Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
+__version__ = '1.2.0'
 import argparse, csv, html, json, math, os, re, shlex, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +51,7 @@ def parser():
     p.add_argument('--clips',type=int,default=10,help='Export this many event clips; 0 disables')
     p.add_argument('--padding',type=float,default=1,help='Clip padding on each side, seconds')
     p.add_argument('--max-clip-seconds',type=positive,default=10,help='Cap each clip; long events are clipped around strongest time')
+    p.add_argument('--analyze-signals',action='store_true',help='Inspect bounded raw IQ around each event for modulation and symbol-rate candidates')
     p.add_argument('--color',choices=['auto','always','never'],default='auto')
     from spectrum_refs import add_arguments
     add_arguments(p)
@@ -296,6 +297,43 @@ def clips(meta,args,events,out):
             e['open_command']='inspectrum '+shlex.quote(str(path.resolve()))
 
 
+def signal_analysis_brief(event):
+    """Compact, human-readable summary for terminal and HTML reports."""
+    analysis=event.get('signal_analysis')
+    if not isinstance(analysis,dict):
+        return 'Not analyzed (use --analyze-signals)'
+    status=str(analysis.get('status') or 'unknown')
+    parts=[]
+    for candidate in analysis.get('candidates') or []:
+        if not isinstance(candidate,dict):
+            continue
+        modulation=str(candidate.get('modulation') or 'unknown')
+        confidence=str(candidate.get('confidence') or 'low')
+        evidence=[str(item) for item in candidate.get('evidence') or [] if item]
+        label=f'{modulation} ({confidence})'
+        if evidence:
+            label+=': '+'; '.join(evidence[:2])
+        parts.append(label)
+    rate=analysis.get('symbol_rate_baud')
+    if isinstance(rate,(int,float)) and math.isfinite(rate):
+        parts.append(f'{rate:g} baud')
+    protocol=analysis.get('protocol')
+    if isinstance(protocol,dict) and protocol.get('name'):
+        label=str(protocol['name'])
+        if protocol.get('status'):
+            label+=f' ({protocol["status"]})'
+        evidence=[str(item) for item in protocol.get('evidence') or [] if item]
+        if evidence:
+            label+=': '+evidence[0]
+        parts.append(label)
+    warnings=[str(item) for item in analysis.get('warnings') or [] if item]
+    if warnings:
+        parts.append('warning: '+warnings[0])
+    if not parts:
+        parts.append(status)
+    return ', '.join(parts)
+
+
 def report(meta,args,events,f,norm,reference,dt,out):
     import numpy as np
     import matplotlib
@@ -362,12 +400,13 @@ def report(meta,args,events,f,norm,reference,dt,out):
         link=f'<a href="{html.escape(e["clip"])}">IQ clip</a>' if 'clip' in e else ''
         bands,hints=brief(e)
         context_text=html.escape(bands or 'No band-plan match')+'<br><small>'+html.escape(hints or 'No cataloged signal match')+'</small>'
-        table.append(f'<tr><td>{e["id"]}</td><td>{e["kind"]}</td><td>{format_time(e["start_s"])}–{format_time(e["end_s"])}</td><td>{frequency}</td><td>{e["bandwidth_hz"]:.0f}</td><td>{e["contrast_db"]:.1f}</td><td>{link}</td><td>{context_text}</td></tr>')
-    note='Candidates only: no transmitter or protocol identification. Transient contrast is relative to that frequency’s usual level; persistent contrast is relative to nearby frequencies. Values are not calibrated SNR. Stationary spurs, gain changes, and interference can trigger detections. Weak, broad, or continuous signals may be missed.'
+        analysis_text=html.escape(signal_analysis_brief(e))
+        table.append(f'<tr><td>{e["id"]}</td><td>{e["kind"]}</td><td>{format_time(e["start_s"])}–{format_time(e["end_s"])}</td><td>{frequency}</td><td>{e["bandwidth_hz"]:.0f}</td><td>{e["contrast_db"]:.1f}</td><td>{link}</td><td>{context_text}</td><td>{analysis_text}</td></tr>')
+    note='Candidates only: no transmitter identification. Optional protocol results are limited to supported decoder checks and remain unconfirmed otherwise. Transient contrast is relative to that frequency’s usual level; persistent contrast is relative to nearby frequencies. Values are not calibrated SNR. Stationary spurs, gain changes, and interference can trigger detections. Weak, broad, or continuous signals may be missed.'
     gallery=''.join(f'<h2>Event {e["id"]}</h2><img loading="lazy" src="{e["image"]}" alt="Event {e["id"]} close-up">' for e in events if 'image' in e)
     context_html=html_context(meta)
     if (out/'spectrum-context.png').exists(): context_html+='<img src="spectrum-context.png" alt="Band and known-signal reference chart">'
-    page=f'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>IQ scan</title><style>body{{background:#10151e;color:#e5edf8;font:16px system-ui;max-width:1200px;margin:30px auto;padding:20px}}a{{color:#79dfff}}img{{width:100%}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #354050}}.scroll{{overflow-x:auto}}code{{overflow-wrap:anywhere}}</style><h1>IQ recording scan</h1><p>{html.escape(Path(meta['input']).name)}</p><p>{format_time(meta['duration_s'])} duration · {meta['sample_rate']:g} samples/s · {meta['format']} · {len(events)} reported candidates</p><p>Resolution: {format_time(dt)} × {meta['frequency_bin_hz']:.1f} Hz. Center: {center if center else 'unknown; offsets only'} Hz.</p><img src="waterfall.png" alt="Annotated waterfall and broadband level"><div class="scroll"><table><tr><th>ID</th><th>Type</th><th>Elapsed time (hh:mm:ss.mmm)</th><th>Frequency</th><th>Detected width (Hz)</th><th>Contrast (dB)</th><th>Clip</th><th>Frequency references (not identification)</th></tr>{''.join(table)}</table></div><p>{note}</p><p>Clips preserve the original format, sample rate and full bandwidth. Use sample rate {meta['sample_rate']:g} in inspectrum. Clip time starts at zero. See events.json for original start times and open commands.</p>{context_html}{gallery}'''
+    page=f'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>IQ scan</title><style>body{{background:#10151e;color:#e5edf8;font:16px system-ui;max-width:1200px;margin:30px auto;padding:20px}}a{{color:#79dfff}}img{{width:100%}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #354050}}.scroll{{overflow-x:auto}}code{{overflow-wrap:anywhere}}</style><h1>IQ recording scan</h1><p>{html.escape(Path(meta['input']).name)}</p><p>{format_time(meta['duration_s'])} duration · {meta['sample_rate']:g} samples/s · {meta['format']} · {len(events)} reported candidates</p><p>Resolution: {format_time(dt)} × {meta['frequency_bin_hz']:.1f} Hz. Center: {center if center else 'unknown; offsets only'} Hz.</p><img src="waterfall.png" alt="Annotated waterfall and broadband level"><div class="scroll"><table><tr><th>ID</th><th>Type</th><th>Elapsed time (hh:mm:ss.mmm)</th><th>Frequency</th><th>Detected width (Hz)</th><th>Contrast (dB)</th><th>Clip</th><th>Frequency references (not identification)</th><th>Signal analysis (candidate evidence)</th></tr>{''.join(table)}</table></div><p>{note}</p><p>Signal analysis is an optional bounded raw-IQ heuristic. Candidate modulation and symbol rates are evidence for review, not general protocol identification. Where present, confirmed protocol evidence comes from a supported decoder check. A missing raw recording leaves analysis unknown.</p><p>Clips preserve the original format, sample rate and full bandwidth. Use sample rate {meta['sample_rate']:g} in inspectrum. Clip time starts at zero. See events.json for original start times and open commands.</p>{context_html}{gallery}'''
     if meta.get('input_warning'):page=page.replace('<h1>IQ recording scan</h1>','<h1>IQ recording scan</h1><p><strong>Input warning:</strong> '+html.escape(meta['input_warning'])+'</p>')
     page=inject(page,plots,events,meta.get('spectrum_context',{}).get('bands',[]),center)
     (out/'report.html').write_text(page)
@@ -416,6 +455,11 @@ def main(argv=None):
                 spectrum_args={k:getattr(args,k) for k in SPECTRUM_ARGS}
             print(f'Resolution: {format_time(dt)}, {meta["frequency_bin_hz"]:.1f} Hz; narrow/short signals may be diluted.',file=sys.stderr)
             events=detect(meta,args,f,norm,dt)
+            if args.analyze_signals:
+                from signal_analysis import analyze_events
+                # Analysis is deliberately opt-in and bounded. The analyzer records
+                # unknown status when a cached redetect has no accessible raw input.
+                analyze_events(meta,events,max_samples=262144)
             describe(meta,events,catalog,args)
             out.mkdir(parents=True)
             if args.clips and not Path(meta['input']).exists():
@@ -433,9 +477,11 @@ def main(argv=None):
         for band in context.get('bands',[])[:8]:
             print(f"  {band['low_hz']/1e6:.6f}–{band['high_hz']/1e6:.6f} MHz: {band['name']}")
         if context.get('warning'): print(context['warning'])
-        print(' ID  Type         Start–end (hh:mm:ss.mmm)      Offset kHz   Width Hz  Contrast')
+        print(' ID  Type         Start–end (hh:mm:ss.mmm)      Offset kHz   Width Hz  Contrast  Signal analysis')
         for e in events:
             print(f" {e['id']:2}  {e['kind']:<10} {format_time(e['start_s'])}–{format_time(e['end_s'])}  {e['center_offset_hz']/1000:+10.3f}  {e['bandwidth_hz']:9.0f}  {e['contrast_db']:6.1f} dB")
+            if args.analyze_signals:
+                print('      Signal analysis: '+signal_analysis_brief(e))
             bands,hints=brief(e)
             import textwrap
             if bands:print(textwrap.fill('    Band: '+bands,width=95,subsequent_indent='    '))

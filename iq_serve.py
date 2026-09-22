@@ -209,7 +209,7 @@ tbody tr{cursor:pointer}code{display:block;background:#0c111a;border:1px solid v
 .err{color:#ff9d9d}.busy{opacity:.55}
 </style>
 <h1>IQ scan explorer</h1>
-<p class="sub">Live re-detection over a cached spectrum. Frequency references and contrast are hints, not identification.</p>
+<p class="sub">Live re-detection over a cached spectrum. Frequency references and contrast are hints, not identification. Raw-IQ modulation and protocol analysis is unavailable in this cached view; use the printed command with <code>--analyze-signals</code> while the recording is present.</p>
 <div class="wrap">
 <div class="panel">
   <label>Scan</label><select id="scan"></select>
@@ -225,7 +225,7 @@ tbody tr{cursor:pointer}code{display:block;background:#0c111a;border:1px solid v
   <code id="cmd"></code>
   <div id="msg" class="note"></div>
   <table><thead><tr><th>ID</th><th>Type</th><th>Start</th><th>End</th><th>Offset kHz</th><th>Width Hz</th><th>Contrast</th></tr></thead><tbody id="rows"></tbody></table>
-  <p class="note">Threshold is applied before regions are formed, so raising it reshapes and splits events rather than just hiding them &mdash; that is why these boxes change size. Run the command above to produce a real report with images and clips.</p>
+  <p class="note">Threshold is applied before regions are formed, so raising it reshapes and splits events rather than just hiding them &mdash; that is why these boxes change size. Run the command above to produce a real report with images and clips. The explorer does not infer modulation, symbol rate or protocol from the cached matrix.</p>
 </div></div>
 <script>
 const $=id=>document.getElementById(id), KEYS=['threshold','min_duration','dc_exclude','top'];

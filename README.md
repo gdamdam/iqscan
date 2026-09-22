@@ -17,8 +17,8 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="25 tests passing" src="https://img.shields.io/badge/tests-25%20passing-2ea043?style=for-the-badge">
-<img alt="version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-0f766e?style=for-the-badge">
+<img alt="40 tests passing" src="https://img.shields.io/badge/tests-40%20passing-2ea043?style=for-the-badge">
+<img alt="version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-cs8%20·%20cs16%20·%20IQ%20WAV-6e40c9?style=flat-square">
@@ -118,9 +118,41 @@ images still describe the full detected interval.
 ./scan.sh capture.cs8 --sample-rate 500000 --top 30 --clips 10
 ./scan.sh capture.cs8 --sample-rate 500000 --threshold 5 --min-duration .1
 ./scan.sh capture.cs8 --sample-rate 500000 --clips 0 --output scans/my-new-scan
+./scan.sh capture.cs8 --sample-rate 500000 --analyze-signals --clips 0
+# terrestrial ISM or amateur capture: waveform evidence only
+./scan.sh field_433MHz_1000000SPS_433920000Hz.cs8 --analyze-signals --clips 0
+# satellite capture: optional SatNOGS frequency context stays separate
+./scan.sh downlink_137900000Hz.cs8 --sample-rate 2400000 --analyze-signals --sat --clips 0
 ./scan.sh capture.cs8 --sat --open        # satellite hints, then open the report
 ./scan.sh --help
 ```
+
+### Optional waveform and symbol-rate evidence
+
+`--analyze-signals` enables a bounded inspection of the original raw IQ around each
+detected event. It reports low or medium confidence candidates such as AM, FM, FSK,
+PSK, carrier/tone and OOK, along with supporting features and a
+symbol rate only when decoding confirms it (currently 1200 baud); otherwise the
+rate stays unknown. The currently supported
+confirmed protocol check is FM Bell 202 AFSK1200 carrying AX.25 UI frames with a
+valid HDLC frame and FCS; other protocols remain unconfirmed. This is general-purpose
+waveform evidence for terrestrial, satellite, ISM, amateur, broadcast and other
+recordings; it is not a satellite-only classifier and it does not decode arbitrary
+protocols. A candidate is not a transmitter identification.
+
+The option is opt-in because raw samples are required and analysis is intentionally
+bounded to 262,144 samples per event. Reports keep the result in `events.json` and
+`events.csv`, show a summary in the terminal and safely escaped HTML, and leave the
+protocol field unconfirmed unless a supported decoder provides confirmation. A
+`--redetect` run can still use a cached spectrum without the source recording; in
+that case signal analysis is recorded as unknown. The live explorer only redraws
+the cached detection matrix and never invents modulation or protocol evidence; run
+the printed redetect command with `--analyze-signals` while the raw capture is
+available.
+
+Reference catalogs remain separate context. Band plans and optional SatNOGS entries
+are frequency overlap hints and cannot promote a frequency match into an observed
+signal or protocol identification.
 
 ### Retune detection without rescanning
 
@@ -329,10 +361,10 @@ filename or path. **The scanner never reads the private location config** — se
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Twenty-five tests over `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers, report
-injection, reference handling, spectrum caching and the explorer HTTP API. Network
-access is patched off and the explorer is exercised against a real loopback server,
-so the suite is hermetic.
+Forty tests cover `.cs8`/`.cs16` detection, exact clip extraction, IQ WAV headers,
+bounded waveform analysis, optional AX.25 evidence, report injection, reference handling,
+spectrum caching and the explorer HTTP API. Network access is patched off and the
+explorer is exercised against a real loopback server, so the suite is hermetic.
 
 ---
 
