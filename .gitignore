@@ -1,0 +1,17 @@
+# Local environments, caches and generated scan output
+.venv/
+.cache/
+__pycache__/
+*.py[cod]
+.DS_Store
+scans/
+outputs/
+reports/
+*.cs8
+*.cs16
+*.cf32
+*.sigmf-*
+*.csv
+*.json
+*.png
+*.html
