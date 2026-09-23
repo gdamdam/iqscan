@@ -35,3 +35,7 @@ py-modules = [
 
 [tool.setuptools.dynamic]
 version = {attr = "iq_scan.__version__"}
+
+[project.urls]
+Homepage = "https://github.com/gdamdam/iqscan"
+Issues = "https://github.com/gdamdam/iqscan/issues"

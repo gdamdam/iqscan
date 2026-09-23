@@ -18,3 +18,20 @@ reports/
 *.json
 *.png
 *.html
+
+# Private settings and other supported capture formats
+.env*
+!.env.example
+*.local.*
+private/
+history/
+*.key
+*.pem
+*.p12
+*.pfx
+*.wav
+*.cu8
+*.cf32_le
+*.cf32_be
+*.npz
+*.log
