@@ -71,6 +71,30 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual(result['protocol']['name'], 'AX.25')
                     self.assertEqual(result['symbol_rate_baud'], 1200)
 
+    def test_high_rate_packet_survives_streaming_decimation(self):
+        from scipy.signal import resample_poly
+        from signal_analysis import MAX_SAMPLES, analyze_events
+        fs = 2_400_000
+        base = packet_iq(carrier=730)
+        z = resample_poly(base, 50, 1)
+        z *= np.exp(2j * np.pi * 7000 * np.arange(len(z)) / fs)
+        self.assertGreater(len(z), MAX_SAMPLES)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'high_rate.cs16'
+            np.clip(np.round(np.column_stack((z.real, z.imag)) * 32767),
+                    -32768, 32767).astype('<i2').tofile(path)
+            event = dict(start_s=0, end_s=len(z)/fs, peak_time_s=len(z)/fs/2,
+                         center_offset_hz=7000, bandwidth_hz=12000)
+            meta = dict(input=str(path), sample_rate=fs, format='cs16',
+                        data_offset=0, samples=len(z), bytes_per_complex=4)
+            result = analyze_events(meta, [event])[0]['signal_analysis']
+            self.assertEqual(result['protocol']['status'], 'confirmed')
+            self.assertEqual(result['symbol_rate_baud'], 1200)
+            window = result['features']['analysis_windows'][0]
+            self.assertGreater(window['end_s'] - window['start_s'], .35)
+            self.assertEqual(window['sample_rate_hz'], 48000)
+            self.assertLessEqual(window['n_samples'], MAX_SAMPLES)
+
     def test_detected_packet_burst_is_decoded_despite_off_air_envelope(self):
         import iq_scan
         from signal_analysis import analyze_events

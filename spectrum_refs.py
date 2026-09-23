@@ -44,18 +44,25 @@ def add_arguments(p):
 
 
 def read_json(data):
-    result=json.loads(data)
-    if not isinstance(result,list) or any(not isinstance(row,dict) for row in result):raise ValueError('Catalog must be a JSON list of objects')
+    try: result=json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
+        raise ValueError(f'Invalid JSON catalog: {exc}') from exc
+    if not isinstance(result,list):raise ValueError('Catalog must be a JSON list of objects')
+    for index,row in enumerate(result,1):
+        if not isinstance(row,dict):raise ValueError(f'Invalid JSON catalog record {index}: expected an object')
     return result
 
 
 def custom(data):
     rows=read_json(data);result=[]
-    for row in rows:
-        lo=float(row.get('low_hz',row.get('frequency_hz',-1)))
-        hi=float(row.get('high_hz',row.get('frequency_hz',-1)))
+    for index,row in enumerate(rows,1):
+        try:
+            lo=float(row.get('low_hz',row.get('frequency_hz',-1)))
+            hi=float(row.get('high_hz',row.get('frequency_hz',-1)))
+        except (ValueError,TypeError,OverflowError) as exc:
+            raise ValueError(f'Invalid custom catalog record {index}: frequencies must be numeric') from exc
         if not math.isfinite(lo) or not math.isfinite(hi) or lo<0 or hi<lo or not row.get('name'):
-            raise ValueError('Each custom entry requires name and finite 0 <= low_hz <= high_hz, or frequency_hz')
+            raise ValueError(f'Invalid custom catalog record {index}: requires name and finite 0 <= low_hz <= high_hz, or frequency_hz')
         result.append(dict(row,low_hz=lo,high_hz=hi,name=str(row['name']),mode=str(row.get('mode','')),status=str(row.get('status','unverified'))))
     return result
 
@@ -64,7 +71,7 @@ def bandplan(data):
     try:root=ET.fromstring(data,parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
     except ET.ParseError as exc:raise ValueError('Invalid band-plan XML: '+str(exc)) from exc
     result=[]
-    for el in root:
+    for index,el in enumerate(root,1):
         if el.tag is ET.Comment:
             comment=' '.join((el.text or '').split())
             if result and len(comment)<250 and '<RangeEntry' not in comment:
@@ -72,8 +79,11 @@ def bandplan(data):
                 if re.fullmatch(r'(?:Ch\.?\s*)?\d+',result[-1]['name']): result[-1]['name']+=' — '+comment
             continue
         if el.tag!='RangeEntry':continue
-        lo=float(el.attrib['minFrequency']);hi=float(el.attrib['maxFrequency'])
-        if not math.isfinite(lo) or not math.isfinite(hi) or lo<0 or hi<lo:raise ValueError('Invalid band-plan frequency range')
+        try:
+            lo=float(el.attrib['minFrequency']);hi=float(el.attrib['maxFrequency'])
+        except (KeyError,ValueError,TypeError,OverflowError) as exc:
+            raise ValueError(f'Invalid band-plan XML RangeEntry {index}: missing or invalid frequency attribute') from exc
+        if not math.isfinite(lo) or not math.isfinite(hi) or lo<0 or hi<lo:raise ValueError(f'Invalid band-plan XML RangeEntry {index}: invalid frequency range')
         result.append(dict(low_hz=lo,high_hz=hi,name=' '.join(''.join(el.itertext()).split()),mode=el.attrib.get('mode',''),status='unverified community reference'))
     if not result:raise ValueError('No RangeEntry records found')
     return result
@@ -83,14 +93,28 @@ def download(key,url,parse,args):
     cache=args.reference_cache.expanduser();path=cache/(key+'.json')
     saved=None
     try:
-        saved=json.loads(path.read_text());parse(saved['raw'].encode())
-        datetime.fromisoformat(saved['downloaded_utc'])
-        if saved['source_url']!=url: saved=None
+        candidate=json.loads(path.read_text(encoding='utf-8'))
+        parse(candidate['raw'].encode('utf-8'))
+        if candidate['source_url']!=url: candidate=None
+        if candidate is not None:
+            try:
+                stamp=datetime.fromisoformat(candidate['downloaded_utc'])
+                if stamp.tzinfo is None or stamp.utcoffset() is None: raise ValueError('timestamp has no timezone')
+            except (ValueError,KeyError,TypeError):
+                # Keep good records for an online fallback, but refresh because age is unknown.
+                candidate['_parsed_downloaded_utc']=None
+            else:
+                candidate['_parsed_downloaded_utc']=stamp
+        saved=candidate
     except (OSError,ValueError,KeyError,TypeError,ET.ParseError):saved=None
     need=args.refresh_references or args.update_references or saved is None
     if saved:
-        age=(datetime.now(timezone.utc)-datetime.fromisoformat(saved['downloaded_utc'])).total_seconds()/86400
-        need=need or age>args.reference_max_age_days
+        stamp=saved.get('_parsed_downloaded_utc')
+        if stamp is None:
+            need=True
+        else:
+            age=(datetime.now(timezone.utc)-stamp.astimezone(timezone.utc)).total_seconds()/86400
+            need=need or age>args.reference_max_age_days
     note=''
     if not args.offline_references and need:
         try:
@@ -106,12 +130,15 @@ def download(key,url,parse,args):
             with tempfile.NamedTemporaryFile('w',dir=cache,delete=False) as f:
                 json.dump(saved,f);tmp=Path(f.name)
             tmp.replace(path)
+            saved['_parsed_downloaded_utc']=datetime.fromisoformat(saved['downloaded_utc'])
         except (OSError,ValueError,ET.ParseError) as exc:
             if saved is None:raise ValueError(f'{key} unavailable: {exc}') from exc
             note=f'Download failed; using cached catalog: {exc}'
     elif args.offline_references and saved is None:raise ValueError(f'{key}: no cached data; run --update-references online first')
     records=parse(saved['raw'].encode())
-    info={k:v for k,v in saved.items() if k!='raw'}
+    info={k:v for k,v in saved.items() if k not in ('raw','_parsed_downloaded_utc')}
+    if saved.get('_parsed_downloaded_utc') is None:
+        info['downloaded_utc']='unknown (cached timestamp invalid)'
     info['catalog']=key;info['records']=len(records);info['warning']=note
     if args.offline_references and need:info['warning']='Offline: cached download may be stale'
     if key.startswith('bandplan'):

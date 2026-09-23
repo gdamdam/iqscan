@@ -111,6 +111,91 @@ class SignalAnalysisTests(unittest.TestCase):
             self.assertIsNone(result['symbol_rate_baud'])
             self.assertFalse({'PSK','BPSK','QPSK'} & {c['modulation'] for c in result['candidates']})
 
+    def test_stream_filter_rejects_adjacent_tone_before_decimation(self):
+        from signal_analysis import _stream_channelize
+        fs = 2_400_000
+        n = 240_000
+        t = np.arange(n) / fs
+        wanted = .25 * np.exp(2j * np.pi * 7000 * t)
+        adjacent = .75 * np.exp(2j * np.pi * 110000 * t)
+        z = wanted + adjacent
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'adjacent.cf32_le'
+            np.column_stack((z.real, z.imag)).astype('<f4').tofile(path)
+            meta = dict(input=str(path), format='cf32_le', sample_rate=fs,
+                        bytes_per_complex=8, samples=n, data_offset=0, iq_order='IQ')
+            channel, out_fs, warnings = _stream_channelize(meta, 0, n, 7000, 12000)
+            self.assertEqual(out_fs, 48000)
+            self.assertEqual(warnings, [])
+            self.assertTrue(np.isfinite(channel).all())
+            # The FIR state crosses the 65,536-source-sample read boundary.
+            boundary = 65536 // 50
+            self.assertLess(np.max(abs(np.diff(channel[boundary-10:boundary+10]))), .01)
+            limited, _, bound_warnings = _stream_channelize(
+                meta, 0, n, 7000, 12000, max_output_samples=1000)
+            self.assertEqual(len(limited), 1000)
+            self.assertTrue(any('sample limit' in warning for warning in bound_warnings))
+            spectrum = abs(np.fft.fft(channel[1000:]))
+            self.assertLess(np.max(spectrum[abs(np.fft.fftfreq(len(spectrum), 1/out_fs)) > 2000]),
+                            np.max(spectrum) * .01)
+
+    def test_long_event_windows_obey_work_and_output_limits(self):
+        fs = 48000
+        n = fs * 10
+        z = .5 * np.exp(2j * np.pi * 7000 * np.arange(n) / fs)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'long.cs16'
+            np.round(np.column_stack((z.real, z.imag)) * 32767).astype('<i2').tofile(path)
+            meta = dict(input=str(path), format='cs16', sample_rate=fs,
+                        bytes_per_complex=4, samples=n, data_offset=0)
+            event = dict(start_s=0, end_s=10, peak_time_s=5,
+                         center_offset_hz=7000, bandwidth_hz=2000)
+            result = analyze_events(meta, [event], max_samples=20000,
+                                    duration_seconds=1.5)[0]['signal_analysis']
+            windows = result['features']['analysis_windows']
+            self.assertEqual(len(windows), 3)
+            self.assertLessEqual(sum(w['source_samples'] for w in windows), fs * 1.5)
+            self.assertTrue(all(w['n_samples'] <= 20000 for w in windows))
+            self.assertIn('duration_limit', result['features']['truncation_reasons'])
+            json.dumps(result, allow_nan=False)
+
+    def test_declared_payload_end_and_float_qi_are_honored(self):
+        fs = 48000
+        n = 4800
+        t = np.arange(n) / fs
+        wanted = .5 * np.exp(2j * np.pi * 6000 * t)
+        trailing = .9 * np.exp(2j * np.pi * 12000 * t)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'bounded.cf32_be'
+            z = np.r_[wanted, trailing]
+            np.column_stack((z.imag, z.real)).astype('>f4').tofile(path)
+            meta = dict(input=str(path), format='cf32_be', sample_rate=fs,
+                        bytes_per_complex=8, samples=n, data_offset=0, iq_order='QI')
+            event = dict(start_s=0, end_s=.3, peak_time_s=.05,
+                         center_offset_hz=6000, bandwidth_hz=2000)
+            result = analyze_events(meta, [event])[0]['signal_analysis']
+            self.assertLessEqual(result['features']['analysis_windows'][0]['end_s'], .1)
+            self.assertLess(abs(result['features']['dominant_frequency_hz']), 500)
+
+    def test_high_rate_filtered_noise_and_invalid_duration(self):
+        fs = 2_400_000
+        n = 240_000
+        rng = np.random.default_rng(81)
+        noise = .1 * (rng.normal(size=n) + 1j * rng.normal(size=n))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'noise.cs16'
+            np.round(np.column_stack((noise.real, noise.imag)) * 32767).astype('<i2').tofile(path)
+            meta = dict(input=str(path), format='cs16', sample_rate=fs,
+                        bytes_per_complex=4, samples=n, data_offset=0)
+            event = dict(start_s=0, end_s=n/fs, peak_time_s=n/fs/2,
+                         center_offset_hz=7000, bandwidth_hz=12000)
+            result = analyze_events(meta, [dict(event)])[0]['signal_analysis']
+            self.assertEqual(result['protocol']['status'], 'unconfirmed')
+            self.assertEqual(result['status'], 'unknown')
+            bad = analyze_events(meta, [dict(event)], duration_seconds=0)[0]['signal_analysis']
+            self.assertEqual(bad['status'], 'unknown')
+            self.assertTrue(any('duration' in w for w in bad['warnings']))
+
     def test_psk_candidates_survive_carrier_offset_and_amplitude_scaling(self):
         n = 24000
         t = np.arange(n) / self.fs

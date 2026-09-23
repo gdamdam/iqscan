@@ -1,4 +1,5 @@
 import json,shlex,sys,tempfile,threading,unittest
+import inspect
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -46,6 +47,25 @@ class ServeTests(unittest.TestCase):
         status,body=self.get('/api/scans')
         self.assertEqual(status,200)
         self.assertEqual([s['id'] for s in json.loads(body)['scans']],['run-one'])
+        self.assertEqual(json.loads(body)['scans'][0]['detection_args']['threshold'],7)
+
+    def test_rejects_symlink_scan_directories_and_cache_files(self):
+        outside=Path(self.tmp.name)/'outside';outside.mkdir();(outside/'spectrum.npz').write_bytes((self.scan/'spectrum.npz').read_bytes())
+        linked_dir=self.scans/'linked-dir';linked_dir.symlink_to(self.scan,target_is_directory=True)
+        linked_cache=self.scans/'linked-cache';linked_cache.mkdir();(linked_cache/'spectrum.npz').symlink_to(self.scan/'spectrum.npz')
+        self.assertEqual([s['id'] for s in self.state.available()],['run-one'])
+        for bad in ('linked-dir','linked-cache'):
+            with self.assertRaises(ValueError):self.state.resolve(bad)
+
+    def test_serve_accepts_detection_defaults_from_caller(self):
+        self.assertIn('defaults',inspect.signature(iq_serve.serve).parameters)
+
+    def test_explorer_uses_text_nodes_and_keyboard_selection(self):
+        self.assertNotIn('innerHTML',iq_serve.PAGE)
+        self.assertIn("setAttribute('tabindex','0')",iq_serve.PAGE)
+        self.assertIn("ev.key==='Enter'||ev.key===' '",iq_serve.PAGE)
+        self.assertIn('clearResults',iq_serve.PAGE)
+        self.assertIn('String(ms).padStart(3',iq_serve.PAGE)
 
     def test_detect_matches_the_library_and_tracks_threshold(self):
         meta,f,norm,_ref,dt,_shaping=self.state.get('run-one')

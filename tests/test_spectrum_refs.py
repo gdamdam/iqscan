@@ -1,6 +1,6 @@
 import argparse,json,sys,tempfile,unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import spectrum_refs as refs
 
@@ -30,6 +30,37 @@ class ReferenceTests(unittest.TestCase):
         refs.describe(meta,[],catalog,args);self.assertIn('No absolute',meta['spectrum_context']['warning'])
         self.assertEqual(refs.custom(b'[{"name":"Test","frequency_hz":123}]')[0]['high_hz'],123)
         with self.assertRaises(ValueError):refs.custom(b'[{"name":"Bad","low_hz":200,"high_hz":100}]')
+
+    def test_malformed_records_have_catalog_context(self):
+        with self.assertRaisesRegex(ValueError,'Invalid JSON catalog'):
+            refs.read_json(b'{broken')
+        with self.assertRaisesRegex(ValueError,'record 1'):
+            refs.custom(b'[{"name":"Bad","low_hz":"oops","high_hz":2}]')
+        with self.assertRaisesRegex(ValueError,'RangeEntry 1'):
+            refs.bandplan(b'<ArrayOfRangeEntry><RangeEntry maxFrequency="2">bad</RangeEntry></ArrayOfRangeEntry>')
+
+    def test_invalid_cached_timestamp_keeps_online_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=self.args('--reference-cache',tmp)
+            path=Path(tmp)/'x.json'
+            path.write_text(json.dumps(dict(source_url='https://example.com',downloaded_utc='yesterday',raw='[{"name":"cached"}]')))
+            with patch('spectrum_refs.urlopen',side_effect=OSError('network down')):
+                rows,info=refs.download('x','https://example.com',refs.read_json,args)
+            self.assertEqual(rows[0]['name'],'cached')
+            self.assertIn('Download failed',info['warning'])
+            self.assertIn('timestamp invalid',info['downloaded_utc'])
+
+    def test_successful_download_writes_json_serializable_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=self.args('--reference-cache',tmp)
+            response=MagicMock();response.__enter__.return_value=response
+            response.read.return_value=b'[{"name":"network"}]';response.headers.get.return_value=None
+            with patch('spectrum_refs.urlopen',return_value=response):
+                rows,info=refs.download('fresh','https://example.com',refs.read_json,args)
+            self.assertEqual(rows[0]['name'],'network')
+            saved=json.loads((Path(tmp)/'fresh.json').read_text())
+            self.assertEqual(saved['raw'],'[{"name":"network"}]')
+            self.assertEqual(info['records'],1)
 
     def test_offline_never_fetches_and_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

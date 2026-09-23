@@ -15,9 +15,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 try:  # scipy is a project dependency, but keep import failure graceful.
-    from scipy.signal import filtfilt, firwin
+    from scipy.signal import fftconvolve, filtfilt, firwin
 except Exception:  # pragma: no cover - exercised only in minimal installations
-    filtfilt = firwin = None
+    fftconvolve = filtfilt = firwin = None
 
 
 MAX_SAMPLES = 262_144
@@ -331,31 +331,22 @@ def analyze_samples(samples: Any, sample_rate: float, analysis_bandwidth_hz: Opt
 
 
 def _read_raw(path: Path, fmt: str, offset: int, count: int) -> np.ndarray:
-    if fmt == "cs8":
-        dtype, bytes_per_complex, scale = np.dtype("i1"), 2, 128.0
-    elif fmt == "cs16":
-        dtype, bytes_per_complex, scale = np.dtype("<i2"), 4, 32768.0
-    else:
+    """Compatibility reader for tests and callers with an explicit byte offset."""
+    from iq_input import read_samples
+    byte_size = {"cs8": 2, "cu8": 2, "cs16": 4,
+                 "cf32_le": 8, "cf32_be": 8}.get(fmt)
+    if byte_size is None:
         raise ValueError("unsupported IQ format")
-    if count <= 0:
-        return np.empty(0, dtype=np.complex128)
-    with path.open("rb") as handle:
-        handle.seek(max(0, int(offset)))
-        raw = handle.read(int(count) * bytes_per_complex)
-    usable = (len(raw) // bytes_per_complex) * bytes_per_complex
-    if usable <= 0:
-        return np.empty(0, dtype=np.complex128)
-    pairs = np.frombuffer(raw[:usable], dtype=dtype).reshape(-1, 2).astype(np.float64)
-    return (pairs[:, 0] + 1j * pairs[:, 1]) / scale
+    return read_samples({"input": str(path), "format": fmt, "data_offset": offset,
+                         "bytes_per_complex": byte_size, "samples": count}, 0, count)
 
 
 def _read_wav_iq(path: Path, data_offset: int, count: int) -> np.ndarray:
-    # Avoid wave.open's full-data read and honor the explicit bounded data offset.
     return _read_raw(path, "cs16", data_offset, count)
 
 
 def _channelize(samples: np.ndarray, fs: float, center_hz: float, bandwidth_hz: Optional[float]) -> Tuple[np.ndarray, float, List[str]]:
-    """Mix an event to zero and FIR-filter it with a guarded event bandwidth."""
+    """Retain the array-based helper used by sample-level tests."""
     warnings: List[str] = []
     if not len(samples):
         return samples, fs, warnings
@@ -382,75 +373,212 @@ def _channelize(samples: np.ndarray, fs: float, center_hz: float, bandwidth_hz: 
     return mixed, fs, warnings
 
 
-def analyze_events(meta: Dict[str, Any], events: Sequence[Dict[str, Any]], max_samples: int = MAX_SAMPLES) -> List[Dict[str, Any]]:
-    """Attach bounded signal analysis to each event and return the same list.
+def _channel_plan(fs: float, bandwidth_hz: Any) -> Tuple[int, float, float]:
+    """Choose an output rate with room for the wanted channel and decoder."""
+    bw = float(bandwidth_hz) if _finite(bandwidth_hz) and float(bandwidth_hz) > 0 else min(12_000.0, fs * .08)
+    target_rate = max(48_000.0, 4.0 * bw)
+    decimation = max(1, int(fs // target_rate))
+    output_fs = fs / decimation
+    cutoff = min(output_fs * .42, max(output_fs * .015, bw * .65))
+    return decimation, output_fs, cutoff
 
-    ``meta`` follows ``iq_scan.metadata``: ``input``, ``format``, ``data_offset``
-    and ``sample_rate`` are used.  Event samples are centered around
-    ``peak_time_s`` and mixed by ``center_offset_hz`` before guarded FIR filtering.
-    Missing files and malformed events become ``unknown`` results with warnings.
+
+def _stream_channelize(meta: Dict[str, Any], first: int, count: int, center_hz: float,
+                       bandwidth_hz: Optional[float], max_output_samples: int = MAX_SAMPLES
+                       ) -> Tuple[np.ndarray, float, List[str]]:
+    """Read, mix, FIR-filter and decimate a source interval in bounded chunks.
+
+    ``first`` and ``count`` are source complex-sample coordinates. A causal FIR
+    carries state across reads, so chunk boundaries do not alias or lose data.
+    The returned array never exceeds ``max_output_samples``.
+    """
+    from iq_input import read_samples
+    fs = float(meta["sample_rate"])
+    if not _finite(fs) or fs <= 0:
+        raise ValueError("invalid sample rate")
+    if not _finite(center_hz) or abs(float(center_hz)) >= fs / 2:
+        raise ValueError("event center offset is invalid for sample rate")
+    decimation, output_fs, cutoff = _channel_plan(fs, bandwidth_hz)
+    warnings: List[str] = []
+    if firwin is None or fftconvolve is None:
+        if decimation > 1:
+            warnings.append("anti-alias filter unavailable; decimation skipped")
+        decimation, output_fs = 1, fs
+    max_output_samples = max(1, min(int(max_output_samples), MAX_SAMPLES))
+    count = max(0, int(count))
+    allowed_raw = max_output_samples * decimation
+    if count > allowed_raw:
+        count = allowed_raw
+        warnings.append("channel output bounded by sample limit")
+    if count == 0:
+        return np.empty(0, dtype=np.complex128), output_fs, warnings
+    if firwin is not None and fftconvolve is not None:
+        taps = min(4097, max(129, 12 * decimation + 1))
+        if taps % 2 == 0:
+            taps += 1
+        h = firwin(taps, cutoff, fs=fs, window="hann")
+        history = np.zeros(taps - 1, dtype=np.complex128)
+    else:
+        h = None
+        history = np.empty(0, dtype=np.complex128)
+    pieces: List[np.ndarray] = []
+    processed = 0
+    while processed < count:
+        want = min(65_536, count - processed)
+        chunk = read_samples(meta, first + processed, want)
+        if len(chunk) == 0:
+            warnings.append("recording ended before requested analysis window")
+            break
+        absolute = first + processed + np.arange(len(chunk), dtype=np.float64)
+        phase = np.remainder(absolute * (float(center_hz) / fs), 1.0)
+        mixed = chunk * np.exp(-2j * np.pi * phase)
+        if h is not None:
+            joined = np.concatenate((history, mixed))
+            filtered = fftconvolve(joined, h, mode="full")[len(history):len(history) + len(mixed)]
+            history = joined[-len(history):]
+        else:
+            filtered = mixed
+        offset = (-processed) % decimation
+        pieces.append(np.asarray(filtered[offset::decimation], dtype=np.complex128))
+        processed += len(chunk)
+        if len(chunk) < want:
+            warnings.append("recording ended before requested analysis window")
+            break
+    output = np.concatenate(pieces) if pieces else np.empty(0, dtype=np.complex128)
+    return output[:max_output_samples], output_fs, warnings
+
+
+def _event_windows(start: int, end: int, peak: int, budget: int,
+                   output_cap_raw: int) -> Tuple[List[Tuple[int, int]], List[str]]:
+    """Place bounded windows at a short event or across a long one."""
+    span = max(0, end - start)
+    per_window_cap = max(1, min(budget, output_cap_raw))
+    if span <= per_window_cap:
+        return [(start, span)], []
+    reasons = ["duration_limit"] if span > budget else ["sample_limit"]
+    # Three views make long events inspectable without exceeding the same
+    # per-event work budget. The central view follows the detector's peak.
+    views = min(3, budget)
+    each = max(1, min(per_window_cap, budget // views))
+    placements = [start, max(start, min(end - each, peak - each // 2)), end - each][:views]
+    windows: List[Tuple[int, int]] = []
+    for first in placements:
+        item = (max(start, first), each)
+        if item not in windows:
+            windows.append(item)
+    return windows, reasons
+
+
+def analyze_events(meta: Dict[str, Any], events: Sequence[Dict[str, Any]],
+                   max_samples: int = MAX_SAMPLES, duration_seconds: float = 2.0
+                   ) -> List[Dict[str, Any]]:
+    """Attach bounded, time-aware signal analysis to each event.
+
+    At most ``duration_seconds`` of source IQ is read per event, and each
+    channelized window stays below ``max_samples`` complex samples. Long events
+    are sampled at the start, detector peak, and end within that work budget.
     """
     try:
-        limit = max(1, min(int(max_samples), MAX_SAMPLES))
-    except (TypeError, ValueError):
-        limit = MAX_SAMPLES
+        output_limit = max(1, min(int(max_samples), MAX_SAMPLES))
+    except (TypeError, ValueError, OverflowError):
+        output_limit = MAX_SAMPLES
     try:
+        duration_limit = float(duration_seconds)
+        if not math.isfinite(duration_limit) or duration_limit <= 0:
+            raise ValueError("analysis duration must be positive and finite")
         path = Path(str(meta.get("input", "")))
         fs = float(meta.get("sample_rate"))
         fmt = str(meta.get("format", ""))
         data_offset = int(meta.get("data_offset", 0))
-        if data_offset < 0:
-            raise ValueError("recording data offset is invalid")
-    except (AttributeError, TypeError, ValueError):
-        path, fs, fmt, data_offset = Path(""), float("nan"), "", 0
+        if data_offset < 0 or not _finite(fs) or fs <= 0:
+            raise ValueError("recording metadata is invalid")
+        reader_fmt = "cs16" if fmt == "wav" else fmt
+        bpc = {"cs8": 2, "cu8": 2, "cs16": 4,
+               "cf32_le": 8, "cf32_be": 8}.get(reader_fmt)
+        if bpc is None:
+            raise ValueError("unsupported recording format")
+        declared = meta.get("samples")
+        if declared is None and meta.get("bytes") is not None:
+            declared = int(meta["bytes"]) // bpc
+        actual = max(0, (path.stat().st_size - data_offset) // bpc) if path.is_file() else 0
+        total = min(actual, int(declared)) if declared is not None else actual
+        if not path.is_file():
+            raise ValueError("recording is unavailable")
+        if total <= 0:
+            raise ValueError("recording has no complete IQ samples")
+        reader_meta = dict(meta, format=reader_fmt, bytes_per_complex=bpc, samples=total)
+        # Work is bounded in both time and source samples, including implausible
+        # metadata rates or an overly large caller-selected duration.
+        work_limited = duration_limit * fs > 12_000_000
+        budget = max(1, min(int(duration_limit * fs), 12_000_000))
+    except (AttributeError, TypeError, ValueError, OverflowError, OSError) as exc:
+        setup_error = str(exc)
+    else:
+        setup_error = None
     out_events: List[Dict[str, Any]] = []
     for event in events:
         if not isinstance(event, dict):
             continue
-        warnings: List[str] = []
         try:
+            if setup_error is not None:
+                raise ValueError(setup_error)
             center = float(event.get("center_offset_hz", 0.0))
             peak_t = float(event.get("peak_time_s", event.get("start_s", 0.0)))
             start_t = float(event.get("start_s", peak_t))
             end_t = float(event.get("end_s", peak_t))
-            if not all(math.isfinite(x) for x in (center, peak_t, start_t, end_t)):
-                raise ValueError("event timing is non-finite")
-            if not path.is_file() or not _finite(fs) or fs <= 0:
-                raise ValueError("recording is unavailable")
-            # Include context around the event, but bound the total read. One
-            # event cannot cause the full recording to be loaded.
-            event_len = max(0.0, end_t - start_t)
+            if not all(math.isfinite(x) for x in (center, peak_t, start_t, end_t)) or end_t < start_t:
+                raise ValueError("event timing is invalid")
+            event_len = end_t - start_t
             context = max(0.010, min(0.25, event_len * .5 + .02))
-            count = min(limit, max(256, int(round((event_len + 2 * context) * fs))))
-            half = count // 2
-            peak_index = max(0, int(round(peak_t * fs)))
-            first = max(0, peak_index - half)
-            # Metadata from iq_scan includes payload bytes and sample count.
-            # Clamp the window before opening the file so a WAV trailing chunk
-            # can never be interpreted as IQ when an event reaches EOF.
-            bpc = 2 if fmt == "cs8" else 4
-            declared_samples = meta.get("samples")
-            if declared_samples is None and meta.get("bytes") is not None:
-                declared_samples = int(meta["bytes"]) // bpc
-            if declared_samples is not None:
-                declared_samples = int(declared_samples)
-                if declared_samples <= 0:
-                    raise ValueError("recording has no complete IQ samples")
-                first = min(first, declared_samples)
-                count = min(count, max(0, declared_samples - first))
-            if fmt in ("cs8", "cs16"):
-                raw = _read_raw(path, fmt, data_offset + first * (2 if fmt == "cs8" else 4), count)
-            elif path.suffix.lower() == ".wav":
-                raw = _read_wav_iq(path, data_offset + first * 4, count)
-            else:
-                raise ValueError("unsupported recording format")
-            if len(raw) < 256:
+            start = max(0, min(total, int(math.floor((start_t - context) * fs))))
+            end = max(start, min(total, int(math.ceil((end_t + context) * fs))))
+            peak = max(start, min(end, int(round(peak_t * fs))))
+            decimation, output_fs, _ = _channel_plan(fs, event.get("bandwidth_hz"))
+            windows, truncation = _event_windows(start, end, peak, budget,
+                                                  output_limit * decimation)
+            if work_limited and end - start > budget:
+                truncation.append("work_limit")
+            results: List[Dict[str, Any]] = []
+            provenance: List[Dict[str, Any]] = []
+            for first, count in windows:
+                channel, analysis_fs, warnings = _stream_channelize(
+                    reader_meta, first, count, center, event.get("bandwidth_hz"), output_limit)
+                window_reasons = list(truncation)
+                if warnings:
+                    window_reasons.extend("eof" if "ended" in x else "sample_limit" for x in warnings)
+                window = {"start_s": first / fs, "end_s": (first + count) / fs,
+                          "sample_rate_hz": analysis_fs, "n_samples": len(channel),
+                          "source_samples": count,
+                          "truncation_reasons": list(dict.fromkeys(window_reasons))}
+                if _finite(meta.get("scan_start_s")):
+                    origin = float(meta["scan_start_s"])
+                    window["absolute_start_s"] = origin + window["start_s"]
+                    window["absolute_end_s"] = origin + window["end_s"]
+                provenance.append(window)
+                result = analyze_samples(channel, analysis_fs,
+                                         analysis_bandwidth_hz=event.get("bandwidth_hz"))
+                if warnings:
+                    result["warnings"] = warnings + list(result.get("warnings", []))
+                results.append(result)
+            if not results:
                 raise ValueError("event has too few samples")
-            raw, analysis_fs, filter_warnings = _channelize(raw, fs, center, event.get("bandwidth_hz"))
-            warnings.extend(filter_warnings)
-            result = analyze_samples(raw, analysis_fs, analysis_bandwidth_hz=event.get("bandwidth_hz"))
-            if warnings:
-                result["warnings"] = warnings + list(result.get("warnings", []))
+            # A CRC-confirmed frame is authoritative only for the window that
+            # decoded it. Heuristic candidates otherwise use the strongest
+            # analyzed window; candidate sets are never merged into a false
+            # composite protocol claim.
+            confirmed = [r for r in results if r["protocol"]["status"] == "confirmed"]
+            if confirmed:
+                result = confirmed[0]
+            else:
+                result = max(results, key=lambda r: (r["status"] == "candidate",
+                    r.get("features", {}).get("spectral_peak_excess_db", -1)))
+            features = result.setdefault("features", {})
+            features["analysis_windows"] = provenance
+            features["analysis_duration_limit_s"] = duration_limit
+            features["truncation_reasons"] = list(dict.fromkeys(
+                reason for window in provenance for reason in window["truncation_reasons"]))
+            if len(windows) > 1:
+                result["warnings"] = ["long event analyzed in bounded windows"] + list(result["warnings"])
         except Exception as exc:
             result = _empty([str(exc)])
         event["signal_analysis"] = result
