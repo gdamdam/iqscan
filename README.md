@@ -1,13 +1,39 @@
-# iqscan
+<div align="center">
 
-**Find activity in an IQ recording and explore it in your browser.**
+```
+ ██╗ ██████╗ ███████╗ ██████╗ █████╗ ███╗   ██╗
+ ██║██╔═══██╗██╔════╝██╔════╝██╔══██╗████╗  ██║
+ ██║██║   ██║███████╗██║     ███████║██╔██╗ ██║
+ ██║██║▄▄ ██║╚════██║██║     ██╔══██║██║╚██╗██║
+ ██║╚██████╔╝███████║╚██████╗██║  ██║██║ ╚████║
+ ╚═╝ ╚══▀▀═╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝
+```
 
-Get an offline waterfall report, ranked signal candidates, and exact IQ clips for
-closer inspection. Works with raw IQ, SigMF, and SDRconnect IQ WAV files.
+### Find the signals hiding in an IQ recording.
 
-Python 3.9+ · macOS / Linux · [GPL-3.0-only](LICENSE)
+Point it at a raw capture. Get back an interactive offline report — waterfall,
+ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 
-## Quick start
+<p>
+<img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
+<img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
+<a href="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml/badge.svg"></a>
+<img alt="version 1.3.0" src="https://img.shields.io/badge/version-1.3.0-0f766e?style=for-the-badge">
+<a href="LICENSE"><img alt="GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square"></a>
+</p>
+<p>
+<img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">
+<img alt="Report" src="https://img.shields.io/badge/report-offline%20HTML-0f766e?style=flat-square">
+<img alt="Explorer" src="https://img.shields.io/badge/explorer-live%20retune-be123c?style=flat-square">
+<img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux-334155?style=flat-square">
+<img alt="Location" src="https://img.shields.io/badge/observing%20location-not%20required-64748b?style=flat-square">
+</p>
+
+</div>
+
+---
+
+## ⚡ Quick start
 
 ```sh
 git clone https://github.com/gdamdam/iqscan.git
@@ -22,7 +48,9 @@ report under `scans/` and opens it in your browser. Your recording is never modi
 **Use the saved sample rate after decimation.** Metadata can also come from a
 SigMF/WAV header or a filename such as `capture_500000SPS_137900000Hz.cs8`.
 
-## What you get
+---
+
+## 🖼 What you get
 
 | Output | Purpose |
 |---|---|
@@ -33,7 +61,9 @@ SigMF/WAV header or a filename such as `capture_500000SPS_137900000Hz.cs8`.
 
 Keep the report folder together; the HTML uses images and files beside it.
 
-## Common tasks
+---
+
+## 🎛 Common tasks
 
 Add these options to your scan command:
 
@@ -56,14 +86,18 @@ To adjust an existing cached scan:
 The browser explorer previews changes. Run its printed command to save a new report.
 See all options with `./scan.sh --help`.
 
-## Before interpreting or sharing results
+---
+
+## 🔎 Before interpreting or sharing results
 
 - Detections are candidates. Interference and receiver artifacts can appear as signals.
 - Frequency matches are hints; they do not identify a transmitter. Contrast is not calibrated SNR.
 - Reports normally contain local paths and recording metadata. Even with `--portable`, review filenames and metadata before sharing.
 - Band plans download automatically when the center frequency is known. Use `--offline-references` to prevent catalog downloads; IQ data stays local.
 
-## Learn more
+---
+
+## 📚 Learn more
 
 - [Formats and input metadata](docs/guide.md#what-goes-in)
 - [Analysis, exports, and cached scans](docs/guide.md#everyday-commands)
