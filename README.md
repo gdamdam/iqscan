@@ -453,3 +453,8 @@ for time selection and filtered exports, [IQEngine](https://github.com/IQEngine/
 for SigMF-centered metadata and annotations, and [Universal Radio Hacker](https://github.com/jopohl/urh)
 for keeping demodulation evidence distinct from protocol interpretation. These are
 design references; no code was copied from them.
+
+## License
+
+Licensed under the GNU General Public License, version 3 only
+(`GPL-3.0-only`). See [LICENSE](LICENSE).
