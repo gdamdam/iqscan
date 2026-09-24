@@ -69,7 +69,7 @@ def cli_style(binary, selected):
     output = probe.stdout + probe.stderr
     if '2.0.0' in output or 'SUBCOMMANDS:' in output:
         return 'v2'
-    if '1.2.' in output or 'Usage : satdump [' in output:
+    if '1.2.' in output or '[pipeline_id] [input_level]' in output:
         return 'stable'
     raise ValueError('Unknown SatDump CLI syntax; pass --satdump-cli stable or v2')
 

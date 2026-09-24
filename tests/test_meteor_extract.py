@@ -14,7 +14,7 @@ class MeteorExtractionTests(unittest.TestCase):
     def test_cli_style_detection_and_override(self):
         with patch('meteor_extract.subprocess.run', return_value=Mock(stdout='SatDump v2.0.0-alpha\nSUBCOMMANDS:', stderr='')):
             self.assertEqual(meteor_extract.cli_style(Path('/fake/satdump'), 'auto'), 'v2')
-        with patch('meteor_extract.subprocess.run', return_value=Mock(stdout='SatDump v1.2.2\nUsage : satdump [pipeline_id]', stderr='')):
+        with patch('meteor_extract.subprocess.run', return_value=Mock(stdout='', stderr='Usage : /Applications/_RADIO/SatDump.app/Contents/MacOS/satdump [pipeline_id] [input_level] [input_file]')):
             self.assertEqual(meteor_extract.cli_style(Path('/fake/satdump'), 'auto'), 'stable')
         self.assertEqual(meteor_extract.cli_style(Path('/fake/satdump'), 'stable'), 'stable')
 
