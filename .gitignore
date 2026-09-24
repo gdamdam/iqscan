@@ -17,6 +17,7 @@ reports/
 *.csv
 *.json
 *.png
+!docs/*.png
 *.html
 
 # Private settings and other supported capture formats

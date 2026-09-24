@@ -60,6 +60,11 @@ SigMF/WAV header or a filename such as `capture_500000SPS_137900000Hz.cs8`.
 
 Keep the report folder together; the HTML uses images and files beside it.
 
+<p align="center">
+<img alt="iqscan report: annotated waterfall, broadband level trace and ranked event table" src="docs/report-example.png" width="820">
+<br><sub>Report for a synthetic 20 s, 500 kS/s recording with FSK bursts, a chirp, a steady carrier and a broadband burst.</sub>
+</p>
+
 ---
 
 ## 🎛 Common tasks
@@ -89,6 +94,11 @@ video and poster. The video uses nextpass's configured observer location and
 cached orbital elements to **predict** the satellite track; it does not measure
 pointing from the IQ. Both SatDump 1.x stable and 2.x CLI forms are supported.
 `ffmpeg` is required for video. See [Meteor extraction](docs/guide.md#meteor-lrpt-image-extraction).
+
+<p align="center">
+<img alt="Simulated Meteor LRPT pass video: spectrum, scrolling waterfall and predicted sky track" src="docs/meteor-video-simulated.gif" width="640">
+<br><sub><b>Simulation:</b> the waterfall is synthetic; the sky track is a real M2-4 prediction for a neutral example location (Wellington, NZ).</sub>
+</p>
 
 To adjust an existing cached scan:
 
