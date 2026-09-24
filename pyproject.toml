@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["playwright>=1.48,<2"]
+video = ["Pillow>=10,<13", "skyfield>=1.50,<2"]
 
 [project.scripts]
 iqscan = "iq_scan:main"
@@ -33,6 +34,8 @@ py-modules = [
   "signal_analysis",
   "protocol_decode",
   "spectrum_refs",
+  "meteor_extract",
+  "meteor_video",
 ]
 
 [tool.setuptools.dynamic]

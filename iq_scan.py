@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
-__version__ = '1.3.0'
+__version__ = '1.4.0'
 import argparse, csv, html, json, math, os, re, shlex, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +30,7 @@ def nonnegative(value):
 
 def parser():
     p=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.epilog='Decode Meteor images with: iqscan meteor RECORDING --satellite M2-4 --video'
     p.add_argument('file',type=Path,nargs='?')
     p.add_argument('--sample-rate',type=positive,help='Complex samples/sec; otherwise read NNNsps from filename')
     p.add_argument('--center-frequency',type=float,help='Hz; otherwise read NNNHz from filename; optional')
@@ -382,6 +383,10 @@ def signal_analysis_brief(event):
             label+=': '+evidence[0]
         parts.append(label)
     warnings=[str(item) for item in analysis.get('warnings') or [] if item]
+    bounded='long event analyzed in bounded windows'
+    if bounded in warnings:
+        warnings.remove(bounded)
+        parts.append('note: long event sampled in short analysis windows')
     if warnings:
         parts.append('warning: '+warnings[0])
     if not parts:
@@ -454,7 +459,7 @@ def report(meta,args,events,f,norm,reference,dt,out):
         frequency=f"{e['frequency_hz']/1e6:.6f} MHz" if center is not None else f"{e['center_offset_hz']/1000:+.3f} kHz"
         link=f'<a href="{html.escape(e["clip"])}">IQ clip</a>' if 'clip' in e else ''
         bands,hints=brief(e)
-        context_text=html.escape(bands or 'No band-plan match')+'<br><small>'+html.escape(hints or 'No cataloged signal match')+'</small>'
+        context_text=html.escape(bands or 'No band-plan match')+'<br><small>'+html.escape(hints or 'No frequency reference in selected catalogs')+'</small>'
         if e.get('channel_clip'):
             link += '<br><a href="'+html.escape(e['channel_clip'])+'">Filtered channel</a>'
         analysis_text=html.escape(signal_analysis_brief(e))
@@ -489,6 +494,10 @@ def source_state(path):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'meteor':
+        from meteor_extract import main as meteor_main
+        return meteor_main(argv[1:])
     args=parser().parse_args(argv)
     try:
         from spectrum_refs import load as load_references, describe, brief

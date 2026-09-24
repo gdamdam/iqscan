@@ -17,6 +17,19 @@ PLANS={'us':'US','international':'International','fr':'French'}
 BAND_REPO='https://github.com/Arrin-KN1E/SDR-Band-Plans'
 SATNOGS='https://db.satnogs.org'
 DISCLAIMER='Frequency overlap only: not a decoded identification or evidence the transmitter was active at the recording location. Community band plans may be old, incomplete or locally inaccurate; they are not the authoritative legal allocation table.'
+METEOR_SOURCE='https://github.com/SatDump/SatDump/blob/master/resources/pipelines/Meteor-M.json'
+
+
+def builtin_signals():
+    """Small offline reference for common weather-satellite downlinks.
+
+    Both Meteor spacecraft share these frequencies. A match identifies a possible
+    transmission family, never the satellite or a successful decode.
+    """
+    return [dict(low_hz=float(freq), high_hz=float(freq),
+                 name='Meteor M2-3/M2-4 LRPT frequency', mode='LRPT',
+                 status='frequency reference only', source_url=METEOR_SOURCE)
+            for freq in (137_100_000, 137_900_000)]
 
 
 def default_reference_cache():
@@ -29,7 +42,7 @@ def default_reference_cache():
 
 def add_arguments(p):
     p.add_argument('--bandplan',choices=['us','international','fr','none'],default='us',help='Community band-plan region (not automatically inferred from private location)')
-    p.add_argument('--known-signals',choices=['satnogs','none'],default='none',help='Optional transmitter catalog; default is general band/service references only')
+    p.add_argument('--known-signals',choices=['auto','satnogs','none'],default='auto',help='Offline Meteor references by default; satnogs adds its optional transmitter catalog')
     p.add_argument('--sat',dest='known_signals',action='store_const',const='satnogs',help='Enable satellite transmitter hints (alias for --known-signals satnogs)')
     p.add_argument('--bandplan-file',type=Path,help='Replace selected plan with local SDR# XML or custom JSON')
     p.add_argument('--signals-file',type=Path,help='Additional known-signal JSON, no network upload')
@@ -154,6 +167,10 @@ def load(args):
     if not math.isfinite(args.match_tolerance) or args.match_tolerance<0:raise ValueError('Match tolerance must be finite and nonnegative')
     if not math.isfinite(args.reference_max_age_days) or args.reference_max_age_days<=0 or args.max_reference_matches<1:raise ValueError('Reference cache age and match count must be positive')
     bands=[];signals=[];sources=[];warnings=[]
+    if args.known_signals != 'none':
+        signals.extend(builtin_signals())
+        sources.append(dict(catalog='built-in-weather-satellites', source_url=METEOR_SOURCE,
+                            records=len(signals), downloaded_utc='packaged with iqscan'))
     def fetched(key,url,parse):
         try:
             rows,info=download(key,url,parse,args);sources.append(info)

@@ -18,7 +18,7 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="version 1.3.0" src="https://img.shields.io/badge/version-1.3.0-0f766e?style=for-the-badge">
+<img alt="version 1.4.0" src="https://img.shields.io/badge/version-1.4.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">
@@ -74,6 +74,21 @@ Add these options to your scan command:
 | Add satellite frequency hints | `--sat` |
 | Remove generated absolute paths for sharing | `--portable --clips 0` |
 | Save a spectrum for later adjustments | `--save-spectrum` |
+
+Decode Meteor M2-3 or M2-4 LRPT channel images and telemetry from a stopped
+CS16 recording using SatDump's offline pipeline:
+
+```sh
+./scan.sh meteor /path/to/recording_2000000SPS_137500000Hz.cs16 \
+  --satellite M2-4 --frequency 137900000 --video
+```
+
+The new result folder contains `images/`, SatDump's recovered data in `satdump/`,
+`extraction.json`, the decoder log, and (with `--video`) a scrolling-waterfall
+video and poster. The video uses nextpass's configured observer location and
+cached orbital elements to **predict** the satellite track; it does not measure
+pointing from the IQ. Both SatDump 1.x stable and 2.x CLI forms are supported.
+`ffmpeg` is required for video. See [Meteor extraction](docs/guide.md#meteor-lrpt-image-extraction).
 
 To adjust an existing cached scan:
 

@@ -31,6 +31,19 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(refs.custom(b'[{"name":"Test","frequency_hz":123}]')[0]['high_hz'],123)
         with self.assertRaises(ValueError):refs.custom(b'[{"name":"Bad","low_hz":200,"high_hz":100}]')
 
+    def test_builtin_meteor_hint_is_frequency_only_and_can_be_disabled(self):
+        args=self.args('--bandplan','none','--offline-references')
+        catalog=refs.load(args)
+        meta=dict(center_frequency_hz=137_500_000,sample_rate=2_000_000)
+        events=[dict(low_offset_hz=350_000,high_offset_hz=445_000),
+                dict(low_offset_hz=100_000,high_offset_hz=120_000)]
+        refs.describe(meta,events,catalog,args)
+        self.assertIn('Meteor',events[0]['known_signal_hints'][0]['name'])
+        self.assertIn('Frequency overlap/proximity only',events[0]['known_signal_hints'][0]['match_basis'])
+        self.assertEqual(events[1]['known_signal_hints'],[])
+        disabled=refs.load(self.args('--bandplan','none','--known-signals','none'))
+        self.assertEqual(disabled['signals'],[])
+
     def test_malformed_records_have_catalog_context(self):
         with self.assertRaisesRegex(ValueError,'Invalid JSON catalog'):
             refs.read_json(b'{broken')

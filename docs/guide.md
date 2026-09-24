@@ -111,6 +111,51 @@ instead of a SigMF sidecar.
 
 ---
 
+## Meteor LRPT image extraction
+
+`iqscan meteor` uses the SatDump command-line decoder to reconstruct **Meteor
+M2-3/M2-4 MSU-MR channel images** and retain telemetry, recovered CADU frames,
+product metadata, and the complete decoder log. This is separate from iqscan's
+FFT event detection. It accepts stopped, raw little-endian CS16 IQ recordings in
+I/Q order. The recording's sample rate and center frequency come from its
+filename, SigMF metadata, or `--sample-rate`/`--center-frequency`.
+
+```sh
+./scan.sh meteor /Volumes/SSD/SatDump/2026-09-23_22-41-11_2000000SPS_137500000Hz.cs16 \
+  --satellite M2-4 --frequency 137900000 --video
+```
+
+The command detects SatDump 1.x stable versus 2.x CLI syntax automatically;
+`--satdump PATH` selects another installation and `--satdump-cli stable|v2`
+overrides version detection if needed. `--satellite M2-3` selects the other supported decoder setting. Choose
+`--frequency 137100000` only if the waterfall shows that downlink in the saved
+band. The selected frequency must lie inside the IQ capture. `--dry-run` prints
+the SatDump command without writing output. `--output DIR` chooses a new result
+directory; an existing directory is never overwritten.
+
+The result includes `images/MSU-MR-*.png`, the complete SatDump `satdump/`
+directory, `satdump.log`, and `extraction.json`. All saved channels are raw
+decoder output; a channel that was not transmitted or recovered is not invented.
+Telemetry, `.cadu` frames, and `.cbor` products remain in `satdump/`. This
+SatDump build may crash during final product processing. The command still
+catalogs images and data written before a crash and records SatDump's exit code.
+No channel images gives a nonzero exit status even when some decoder data exists.
+
+`--video` adds `waterfall-track.mp4` and a PNG poster. The video compresses the
+recorded interval and shows its spectrum and waterfall alongside a **predicted**
+satellite position. It reads the same private location file and cached CelesTrak
+orbital elements as [nextpass](https://github.com/gdamdam/nextpass). The
+filename's `YYYY-MM-DD_HH-MM-SS` is interpreted as UTC; use
+`--recording-start 2026-09-23T22:41:11Z` if the filename lacks a UTC timestamp.
+The orbital elements must be within 14 days of the recording. To use another
+observer file or elements JSON, pass `--location-config` or `--elements-file`.
+Video needs `ffmpeg` plus Pillow and Skyfield (`pip install 'iqscan[video]'`);
+`scan.sh` installs the Python video dependencies when requested.
+
+The displayed track is orbital prediction, not evidence of a decoded lock or
+measured antenna pointing. The waterfall color scale shows relative power, not
+calibrated dBm.
+
 ## Everyday commands
 
 ```sh
@@ -310,7 +355,14 @@ full provenance in JSON (source URLs, download dates, source-header dates, conte
 > rejected automated access during development, so this tool makes no claim to an
 > authoritative FCC/ITU legal allocation table.
 
-With `--sat`, SatNOGS defaults to records marked active and not explicitly dead. That is
+By default, iqscan includes two offline Meteor M2-3/M2-4 LRPT frequency
+references at 137.1 and 137.9 MHz, based on SatDump's Meteor pipeline. A match
+only suggests the LRPT frequency family: M2-3 and M2-4 share these channels,
+and another transmitter or artifact can overlap them. Use `--known-signals none`
+to disable these built-in hints. The older community band plan may still show
+retired satellite names; those are separate service references.
+
+With `--sat`, SatNOGS adds catalog transmitters marked active and not explicitly dead. That is
 catalog metadata — not a live status check, not an orbital visibility calculation.
 Historical recordings are matched against today's catalog, not a snapshot from then.
 Frequency proximity cannot separate co-channel satellites, interference or receiver

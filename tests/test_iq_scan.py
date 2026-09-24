@@ -5,6 +5,11 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import iq_scan
 
 class ScannerTests(unittest.TestCase):
+    def test_long_event_window_note_is_not_presented_as_receiver_warning(self):
+        event={'signal_analysis': {'status': 'unknown', 'warnings': ['long event analyzed in bounded windows']}}
+        self.assertIn('note: long event sampled', iq_scan.signal_analysis_brief(event))
+        self.assertNotIn('warning:', iq_scan.signal_analysis_brief(event))
+
     def test_cs8_cs16_detect_and_exact_clips(self):
         fs=32000;n=fs*3;t=np.arange(n)/fs
         rng=np.random.default_rng(4)

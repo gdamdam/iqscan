@@ -1,0 +1,2 @@
+Pillow>=10,<13
+skyfield>=1.50,<2

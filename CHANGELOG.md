@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Added `iqscan meteor` for offline SatDump LRPT extraction from M2-3/M2-4 CS16 recordings, preserving image channels, telemetry, recovered frames, and decoder logs even when final SatDump processing crashes.
+- Added optional synchronized waterfall/sky-track video using nextpass's configured location and cached orbital elements.
+- Included an offline Meteor LRPT frequency reference by default and clarified that long-event analysis uses representative windows rather than flagging it as a receiver problem.
+
 ## 1.3.0 — 2026-09-23
 
 - Added unsigned 8-bit and little- or big-endian complex float IQ, raw `IQ`/`QI` component order, and single-capture SigMF input with strict metadata and sample validation.
