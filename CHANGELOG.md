@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 — 2026-09-23
+
+- Channel exports now apply the channelizer's sample cap before choosing the window and keep it centered on the event, so long padding can no longer push the detected signal out of the clip.
+- The spectrum explorer keeps saved `--min-offset`/`--max-offset` limits in previews and in the generated `--redetect` command.
+- Meteor video falls back to common TrueType fonts and then Pillow's bundled font instead of requiring macOS Arial.
+
 ## 1.4.0
 
 - Added `iqscan meteor` for offline SatDump LRPT extraction from M2-3/M2-4 CS16 recordings, preserving image channels, telemetry, recovered frames, and decoder logs even when final SatDump processing crashes.

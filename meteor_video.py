@@ -73,12 +73,28 @@ def load_context(meta, args):
                 observer=wgs84.latlon(lat, lon, elevation_m=altitude),
                 satellite=satellite, element_file=str(elements_path), location_file=str(location_path))
 
-FONT = '/System/Library/Fonts/Supplemental/Arial.ttf'
-BOLD = '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
-if not Path(BOLD).exists():
-    BOLD = FONT
-FONTS = {s: ImageFont.truetype(FONT, s) for s in (15, 18, 21, 23, 27, 38)}
-BOLDS = {s: ImageFont.truetype(BOLD, s) for s in (18, 21, 23, 27, 38)}
+# Arial on macOS, common TrueType families elsewhere, then Pillow's bundled font,
+# so --video never depends on one platform's font directory.
+FONT_NAMES = ('/System/Library/Fonts/Supplemental/Arial.ttf', 'Arial.ttf', 'DejaVuSans.ttf',
+              'LiberationSans-Regular.ttf')
+BOLD_NAMES = ('/System/Library/Fonts/Supplemental/Arial Bold.ttf', 'Arial Bold.ttf', 'DejaVuSans-Bold.ttf',
+              'LiberationSans-Bold.ttf') + FONT_NAMES
+
+
+def load_font(names, size):
+    for name in names:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:                                                # Pillow < 10.1 has no sized default
+        return ImageFont.load_default()
+
+
+FONTS = {s: load_font(FONT_NAMES, s) for s in (15, 18, 21, 23, 27, 38)}
+BOLDS = {s: load_font(BOLD_NAMES, s) for s in (18, 21, 23, 27, 38)}
 
 
 def spectrum_data(meta, target_hz) -> tuple[np.ndarray, np.ndarray, float]:

@@ -79,6 +79,26 @@ class ReleaseTests(unittest.TestCase):
                 rows=list(csv.DictReader(file))
             self.assertEqual([float(e['start_s']) for e in rows],sorted(float(e['start_s']) for e in rows))
 
+    def test_channel_export_cap_keeps_the_event(self):
+        from argparse import Namespace
+        from iq_export import export_channels
+        # Wide channel: no decimation, so the 262144-sample cap is ~0.52 s of source.
+        fs=500_000
+        meta=dict(sample_rate=fs,duration_s=3.0,samples=3*fs,center_frequency_hz=None)
+        event=dict(id=1,start_s=1.0,end_s=1.5,peak_time_s=1.25,center_offset_hz=10000.0,bandwidth_hz=400000.0)
+        args=Namespace(channel_clips=1,padding=1.0,max_clip_seconds=30.0)
+        calls=[]
+        def channelize(meta,first,count,center,bw,max_output_samples):
+            calls.append((first,count))
+            return np.zeros(4,complex),float(fs),[]
+        with tempfile.TemporaryDirectory() as tmp, patch('signal_analysis._stream_channelize',channelize), \
+                patch('iq_input.write_sigmf',return_value=Path(tmp)/'x.sigmf-meta'):
+            export_channels(meta,args,[event],Path(tmp))
+        first,count=calls[0]
+        self.assertLessEqual(count,262144)
+        self.assertLessEqual(first/fs,event['start_s'])
+        self.assertGreaterEqual((first+count)/fs,event['end_s'])
+
     def test_baseband_zero_frequency_and_portable_nested_warnings(self):
         from iq_export import portable_report
         args=iq_scan.parser().parse_args(['--reference-cache','/private/test-cache'])

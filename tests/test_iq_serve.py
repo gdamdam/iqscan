@@ -82,6 +82,17 @@ class ServeTests(unittest.TestCase):
         self.assertTrue(loose and strict)
         self.assertLess(strict[0]['bandwidth_hz'],loose[0]['bandwidth_hz'])
 
+    def test_saved_frequency_limits_survive_preview_and_command(self):
+        with patch('iq_scan.cache_summary',return_value=({'detection_args':{'min_offset':5000.0,'max_offset':9000.0},
+                                                          'sample_rate':32000},{})):
+            saved=self.state.detection_defaults('run-one')
+        self.assertEqual((saved['min_offset'],saved['max_offset']),(5000.0,9000.0))
+        with patch.object(self.state,'detection_defaults',return_value=saved):
+            payload=json.loads(self.get('/api/detect?scan=run-one')[1])
+        self.assertTrue(payload['events'])
+        self.assertTrue(all(5000<=e['center_offset_hz']<=9000 for e in payload['events']))
+        self.assertIn('--min-offset 5000 --max-offset 9000',payload['command'])
+
     def test_image_is_a_png_sized_to_the_matrix(self):
         status,body=self.get('/api/image?scan=run-one')
         self.assertEqual(status,200)

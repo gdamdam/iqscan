@@ -6,28 +6,38 @@ import shlex
 from argparse import Namespace
 from pathlib import Path
 
+MAX_OUTPUT = 262144
+
 
 def export_channels(meta, args, events, out):
     """Export derived IQ with explicit processing provenance; original clips stay exact."""
     if not args.channel_clips:
         return
     import numpy as np
-    from signal_analysis import _stream_channelize
+    from signal_analysis import (MAX_SAMPLES, _channel_plan, _stream_channelize,
+                                 fftconvolve, firwin)
     from iq_input import write_sigmf
     folder = out / 'channels'
     folder.mkdir()
     fs = meta['sample_rate']
     for event in events[:args.channel_clips]:
+        bandwidth = max(12000, event['bandwidth_hz'])
+        # The channelizer keeps only the first N source samples, so cap the window here
+        # and centre it on the event; otherwise long padding can crowd the signal out.
+        decimation = _channel_plan(fs, bandwidth)[0] if firwin is not None and fftconvolve is not None else 1
+        limit = min(args.max_clip_seconds, min(MAX_OUTPUT, MAX_SAMPLES) * decimation / fs)
         start = max(0, event['start_s'] - args.padding)
         end = min(meta['duration_s'], event['end_s'] + args.padding)
-        if end - start > args.max_clip_seconds:
-            start = max(start, event['peak_time_s'] - args.max_clip_seconds / 2)
-            end = min(meta['duration_s'], start + args.max_clip_seconds)
+        if end - start > limit:
+            start = max(start, event['peak_time_s'] - limit / 2)
+            end = min(end, start + limit)
+            start = max(0, end - limit)
         first = int(start * fs)
-        count = min(meta['samples'] - first, math.ceil(end * fs) - first)
+        count = min(meta['samples'] - first, math.ceil(end * fs) - first,
+                    int(limit * fs))
         samples, rate, warnings = _stream_channelize(
             meta, first, count, event['center_offset_hz'],
-            max(12000, event['bandwidth_hz']), max_output_samples=262144)
+            bandwidth, max_output_samples=MAX_OUTPUT)
         name = f"event-{event['id']:02d}_{rate:g}SPS.cf32"
         path = folder / name
         pairs = np.column_stack((samples.real, samples.imag)).astype('<f4')

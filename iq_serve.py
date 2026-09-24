@@ -19,6 +19,8 @@ from urllib.parse import urlparse, parse_qs
 import iq_scan
 
 DETECT_ARGS = {'threshold': float, 'min_duration': float, 'dc_exclude': float, 'top': int}
+# Saved frequency limits have no slider but must survive preview and the generated command.
+BOUND_ARGS = {'min_offset': float, 'max_offset': float}
 MAX_IMAGE = (1600, 900)
 
 
@@ -72,6 +74,8 @@ class Spectra:
                 settings = (payload.get('settings') or payload.get('detection_args')
                             or payload.get('metadata', {}).get('detection_args', {}))
             values = {key: DETECT_ARGS[key](settings[key]) for key in DETECT_ARGS if key in settings}
+            values.update({key: cast(settings[key]) for key, cast in BOUND_ARGS.items()
+                           if settings.get(key) is not None})
             if not values: return {}
             base = {key: getattr(iq_scan.parser().parse_args([]), key) for key in DETECT_ARGS}
             base.update(values)
@@ -137,6 +141,10 @@ def command_for(scan_id, args, root):
     parts = [sys.executable, str(module), '--redetect', str(scan_path)]
     for key in DETECT_ARGS:
         parts.extend((f"--{key.replace('_','-')}", f"{getattr(args, key):g}"))
+    for key in BOUND_ARGS:
+        value = getattr(args, key, None)
+        if value is not None:
+            parts.extend((f"--{key.replace('_','-')}", f"{value:.12g}"))
     return shlex.join(parts)
 
 

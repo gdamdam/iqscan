@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 import argparse, csv, html, json, math, os, re, shlex, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path

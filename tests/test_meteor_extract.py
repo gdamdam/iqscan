@@ -62,3 +62,13 @@ class MeteorExtractionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MeteorVideoFontTests(unittest.TestCase):
+    def test_missing_system_fonts_fall_back_to_bundled_font(self):
+        try:
+            import meteor_video
+        except ImportError as exc:
+            self.skipTest(f'video dependencies unavailable: {exc}')
+        font = meteor_video.load_font(('/nonexistent/Arial.ttf', 'no-such-font.ttf'), 21)
+        self.assertIsNotNone(font.getbbox('Meteor'))
