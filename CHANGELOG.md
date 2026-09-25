@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Bundle WWV/WWVH frequency references for offline HF scans.
+- Extend `--update-references` with a locally cached EiBi shortwave/utility
+  catalog; ordinary scans reuse it automatically. Add `--known-signals eibi`
+  for first-scan downloads, seasonal URLs, Latin-1 parsing, validated updates
+  and previous-season fallback. Retain schedule metadata without claiming
+  time-aware identification.
+
 ## 1.6.0 — 2026-09-25
 
 - Windows support: `scan.cmd` launcher, cmd.exe-style quoting for printed commands, `start`/`xdg-open` report commands per platform, SatDump lookup in Program Files and per-user Programs, reference cache under `%LOCALAPPDATA%`, `tzdata` installed with the video extra, and ANSI colour only in terminals that render it.

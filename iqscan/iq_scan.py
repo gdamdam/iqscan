@@ -477,7 +477,7 @@ def report(meta,args,events,f,norm,reference,dt,out):
         frequency=f"{e['frequency_hz']/1e6:.6f} MHz" if center is not None else f"{e['center_offset_hz']/1000:+.3f} kHz"
         link=f'<a href="{html.escape(e["clip"])}">IQ clip</a>' if 'clip' in e else ''
         bands,hints=brief(e)
-        context_text=html.escape(bands or 'No band-plan match')+'<br><small>'+html.escape(hints or 'No frequency reference in selected catalogs')+'</small>'
+        context_text=html.escape(bands or 'No band-plan match')+'<br><small>'+html.escape(hints or 'No frequency reference in selected catalogs; update with iqscan --update-references')+'</small>'
         if e.get('channel_clip'):
             link += '<br><a href="'+html.escape(e['channel_clip'])+'">Filtered channel</a>'
         analysis_text=html.escape(signal_analysis_brief(e))

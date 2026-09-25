@@ -1,4 +1,5 @@
 """Downloadable frequency context. Matches describe references, never signal identity."""
+from copy import copy
 import hashlib
 import html
 import json
@@ -45,7 +46,7 @@ def default_reference_cache():
 
 def add_arguments(p):
     p.add_argument('--bandplan',choices=['us','international','fr','none'],default='us',help='Community band-plan region (not automatically inferred from private location)')
-    p.add_argument('--known-signals',choices=['auto','satnogs','none'],default='auto',help='Offline Meteor references by default; satnogs adds its optional transmitter catalog')
+    p.add_argument('--known-signals',choices=['auto','eibi','satnogs','none'],default='auto',help='Built-in time/weather stations and cached EiBi by default; eibi downloads shortwave schedules; satnogs adds satellite transmitters')
     p.add_argument('--sat',dest='known_signals',action='store_const',const='satnogs',help='Enable satellite transmitter hints (alias for --known-signals satnogs)')
     p.add_argument('--bandplan-file',type=Path,help='Replace selected plan with local SDR# XML or custom JSON')
     p.add_argument('--signals-file',type=Path,help='Additional known-signal JSON, no network upload')
@@ -56,7 +57,7 @@ def add_arguments(p):
     p.add_argument('--offline-references',action='store_true',help='No reference network requests; use cache/local files only')
     p.add_argument('--reference-max-age-days',type=float,default=7,help='Cache download age before refresh; not age of upstream information')
     p.add_argument('--reference-cache',type=Path,default=default_reference_cache(),help='Local downloaded catalogs (XDG cache when installed)')
-    p.add_argument('--update-references',action='store_true',help='Download/refresh selected catalogs and exit; no IQ file required')
+    p.add_argument('--update-references',action='store_true',help='Update shortwave schedules and selected reference catalogs; no IQ file required')
 
 
 def read_json(data):
@@ -105,7 +106,7 @@ def bandplan(data):
     return result
 
 
-def download(key,url,parse,args):
+def download(key,url,parse,args,encoding='utf-8-sig'):
     cache=args.reference_cache.expanduser();path=cache/(key+'.json')
     saved=None
     try:
@@ -139,9 +140,10 @@ def download(key,url,parse,args):
                 data=response.read(20_000_001)
                 if len(data)>20_000_000:raise ValueError('Reference response exceeds 20 MB')
                 modified=response.headers.get('Last-Modified')
-            records=parse(data)
+            raw=data.decode(encoding)
+            records=parse(raw.encode('utf-8'))
             if not records:raise ValueError('Empty reference catalog')
-            saved=dict(source_url=url,downloaded_utc=datetime.now(timezone.utc).isoformat(),http_last_modified=modified,sha256=hashlib.sha256(data).hexdigest(),raw=data.decode('utf-8-sig'))
+            saved=dict(source_url=url,downloaded_utc=datetime.now(timezone.utc).isoformat(),http_last_modified=modified,sha256=hashlib.sha256(data).hexdigest(),raw=raw)
             cache.mkdir(parents=True,exist_ok=True)
             with tempfile.NamedTemporaryFile('w',dir=cache,delete=False) as f:
                 json.dump(saved,f);tmp=Path(f.name)
@@ -165,15 +167,50 @@ def download(key,url,parse,args):
     return records,info
 
 
+
+def load_eibi(args):
+    from .hf_catalog import default_url, parse_eibi, EIBI_HOME
+    url=default_url()
+    try:
+        rows,info=download('eibi-schedule',url,parse_eibi,args,encoding='latin-1')
+    except (ValueError,OSError) as exc:
+        # A seasonal rollover must not discard a working previous-season cache.
+        warning=str(exc)
+        try:
+            cached=json.loads((args.reference_cache.expanduser()/'eibi-schedule.json').read_text(encoding='utf-8'))
+            previous=cached['source_url']
+            if not re.fullmatch(re.escape(EIBI_HOME)+r'dx/sked-[ab]\d{2}\.csv',previous):
+                raise ValueError('Unrecognized cached EiBi source')
+            offline=copy(args);offline.offline_references=True
+            rows,info=download('eibi-schedule',previous,parse_eibi,offline,encoding='latin-1')
+            info['warning']=f'EiBi refresh unavailable; using cached schedule: {warning}'
+        except (OSError,ValueError,KeyError,TypeError):
+            rows=[];info=dict(catalog='eibi-schedule',source_url=url,records=0,
+                             warning=f'EiBi unavailable; built-in references remain available: {warning}')
+    for row in rows:row.setdefault('source_url',info['source_url'])
+    info['terms']='EiBi / Eike Bierwirth; non-commercial use; '+EIBI_HOME
+    info['schedule_matching']='Frequency only; UTC times, days and seasonal dates are not filtered'
+    return rows,info
+
+
 def load(args):
     if args.offline_references and (args.refresh_references or args.update_references):raise ValueError('Offline and refresh/update reference options cannot be combined')
     if not math.isfinite(args.match_tolerance) or args.match_tolerance<0:raise ValueError('Match tolerance must be finite and nonnegative')
     if not math.isfinite(args.reference_max_age_days) or args.reference_max_age_days<=0 or args.max_reference_matches<1:raise ValueError('Reference cache age and match count must be positive')
     bands=[];signals=[];sources=[];warnings=[]
     if args.known_signals != 'none':
+        from .hf_catalog import time_signals, merge_signals, NIST_SOURCE
         signals.extend(builtin_signals())
         sources.append(dict(catalog='built-in-weather-satellites', source_url=METEOR_SOURCE,
                             records=len(signals), downloaded_utc='packaged with iqscan'))
+        times=time_signals();signals.extend(times)
+        sources.append(dict(catalog='built-in-hf-time-stations',source_url=NIST_SOURCE,
+                            records=len(times),downloaded_utc='packaged with iqscan'))
+        # Default scans stay offline for EiBi until the user first updates it.
+        eibi_cache=args.reference_cache.expanduser()/'eibi-schedule.json'
+        if args.known_signals=='eibi' or args.update_references or args.refresh_references or eibi_cache.exists():
+            rows,info=load_eibi(args);merge_signals(signals,rows);sources.append(info)
+            if info.get('warning'):warnings.append(info['warning'])
     def fetched(key,url,parse):
         try:
             rows,info=download(key,url,parse,args);sources.append(info)
@@ -260,7 +297,10 @@ def html_context(meta):
     text+='<h3>Sources</h3><ul>'
     for s in c.get('sources',[]):
         url=s.get('source_url','');link=f'<a href="{esc(url)}">{esc(s["catalog"])}</a>' if url.startswith('https://') else esc(s['catalog'])
-        text+=f'<li>{link}: {s["records"]} records; downloaded {esc(s.get("downloaded_utc","local"))}; upstream header date {esc(s.get("upstream_header_date","not stated"))}</li>'
+        text+=f'<li>{link}: {s["records"]} records; downloaded {esc(s.get("downloaded_utc","local"))}; upstream header date {esc(s.get("upstream_header_date","not stated"))}'
+        if s.get('terms'):text+='; '+esc(s['terms'])
+        if s.get('schedule_matching'):text+='; '+esc(s['schedule_matching'])
+        text+='</li>'
     return text+'</ul>'
 
 

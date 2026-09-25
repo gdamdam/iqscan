@@ -347,6 +347,7 @@ happens locally against the cached catalog.
 #   --bandplan us                          U.S. community plan (default)
 #   --bandplan international               Basic international community plan
 #   --bandplan fr                          French community plan
+#   --known-signals eibi                   Download/use EiBi shortwave schedules
 #   --known-signals satnogs                Satellite downlinks; same as --sat
 #   --signal-status all                    Include inactive/unknown entries
 #   --match-tolerance 3000                 Match within 3 kHz
@@ -368,7 +369,37 @@ full provenance in JSON (source URLs, download dates, source-header dates, conte
 > rejected automated access during development, so this tool makes no claim to an
 > authoritative FCC/ITU legal allocation table.
 
-By default, iqscan includes two offline Meteor M2-3/M2-4 LRPT frequency
+By default, iqscan includes offline WWV (2.5/5/10/15/20 MHz, plus experimental
+25 MHz) and WWVH (2.5/5/10/15 MHz) entries. These are frequency references
+from [NIST](https://www.nist.gov/pml/time-and-frequency-division/what-time-it-faqs),
+not proof of reception. They work on a fresh install with no downloads.
+
+`iqscan --update-references` also downloads the current **EiBi shortwave and
+utility schedule**, then stores it in the reference cache. Subsequent ordinary
+scans automatically include that saved catalog; no `--signals-file` is needed.
+`--known-signals eibi` downloads it on the first scan too. A normal default scan
+without an EiBi cache uses the packaged references without fetching EiBi.
+Once cached, normal online scans refresh it after `--reference-max-age-days`
+(default seven days). Use `--offline-references` to prevent network requests.
+`--known-signals none` disables built-in and EiBi references (explicit custom
+`--signals-file` entries still apply).
+
+EiBi's seasonal URL follows the last Sundays of March and October, using the
+same season rules as msdr. Downloads are validated before replacing the cache;
+failed or malformed updates retain usable cached data, including the previous
+season at rollover, and show a warning. Without cached data, built-in stations
+remain available. Update failures return a nonzero exit status.
+
+EiBi rows are grouped by station, country and frequency. UTC times, days,
+languages, targets and seasonal date fields are retained in `events.json`, but
+**matching is frequency-only**, not filtered by recording time. Multiple
+stations can share a frequency. Utility modulation is left unspecified rather
+than assuming every entry is AM. EiBi data is fetched from its published HTTP
+CSV endpoint, is credited to Eike Bierwirth and is for non-commercial use;
+[source-specific terms apply](http://www.eibispace.de/). Full schedules are
+cached locally, not redistributed inside the Python package.
+
+The built-in catalog also includes two offline Meteor M2-3/M2-4 LRPT frequency
 references at 137.1 and 137.9 MHz, based on SatDump's Meteor pipeline. A match
 only suggests the LRPT frequency family: M2-3 and M2-4 share these channels,
 and another transmitter or artifact can overlap them. Use `--known-signals none`

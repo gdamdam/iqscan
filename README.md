@@ -32,6 +32,23 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 
 ---
 
+### Station catalog
+
+WWV/WWVH time-station and Meteor frequency references are built in and work
+offline. Download or refresh the broader EiBi shortwave/utility catalog with:
+
+```sh
+iqscan --update-references
+```
+
+Then scan normally: saved stations are matched automatically, with no custom
+JSON file. `--offline-references` uses local data only; `--known-signals eibi`
+also fetches the schedule on a first scan. Failed updates keep the last usable
+catalog. Matches are frequency hints, not confirmed station identities or
+checks against broadcast times. EiBi data is for non-commercial use; see the
+[reference guide](docs/guide.md#band-plans-and-known-signal-hints-downloaded-cached-matched-locally).
+
+
 ## ⚡ Quick start
 
 ```sh
