@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.1 — 2026-09-25
 
 - Bundle WWV/WWVH frequency references for offline HF scans.
 - Extend `--update-references` with a locally cached EiBi shortwave/utility
