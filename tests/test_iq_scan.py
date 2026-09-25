@@ -74,16 +74,16 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(strict),*quiet,'--threshold','25']),0)
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-top'),*quiet,'--top','0']),2)
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-dc'),*quiet,'--dc-exclude','nan']),2)
-            first=json.loads((base/'events.json').read_text())['events']
-            after=json.loads((strict/'events.json').read_text())['events']
+            first=json.loads((base/'events.json').read_text(encoding='utf-8'))['events']
+            after=json.loads((strict/'events.json').read_text(encoding='utf-8'))['events']
             self.assertTrue(first and after)
             # Threshold reshapes the region itself, so the same burst comes back narrower.
             self.assertLess(after[0]['bandwidth_hz'],first[0]['bandwidth_hz'])
-            self.assertEqual(json.loads((strict/'events.json').read_text())['metadata']['redetected_from'],str(base.resolve()))
+            self.assertEqual(json.loads((strict/'events.json').read_text(encoding='utf-8'))['metadata']['redetected_from'],str(base.resolve()))
             # FFT shaping comes from the cache even when the command line disagrees.
             ignored=root/'ignored'
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(ignored),*quiet,'--fft-size','256']),0)
-            self.assertEqual(json.loads((ignored/'events.json').read_text())['metadata']['frequency_bin_hz'],meta['frequency_bin_hz'])
+            self.assertEqual(json.loads((ignored/'events.json').read_text(encoding='utf-8'))['metadata']['frequency_bin_hz'],meta['frequency_bin_hz'])
             # A directory without a cached spectrum says what to do about it.
             with self.assertRaisesRegex(ValueError,'--save-spectrum'):iq_scan.load_spectrum(strict)
 

@@ -43,7 +43,7 @@ class BrowserTests(unittest.TestCase):
             '--clips', '0', '--bandplan', 'none', '--known-signals', 'none'])
         if result != 0:
             raise RuntimeError('could not create interactive report fixture')
-        events = json.loads((cls.report_dir / 'events.json').read_text())['events']
+        events = json.loads((cls.report_dir / 'events.json').read_text(encoding='utf-8'))['events']
         if len(events) < 2:
             raise RuntimeError(f'browser report fixture needs two events, got {len(events)}')
 

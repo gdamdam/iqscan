@@ -7,7 +7,9 @@ loopback; there is no authentication and none is intended.
 """
 import io
 import json
+import os
 import shlex
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -144,7 +146,7 @@ def command_for(scan_id, args, root):
         value = getattr(args, key, None)
         if value is not None:
             parts.extend((f"--{key.replace('_','-')}", f"{value:.12g}"))
-    return shlex.join(parts)
+    return subprocess.list2cmdline(parts) if os.name == 'nt' else shlex.join(parts)
 
 
 def handler_for(state, defaults, overrides=None):

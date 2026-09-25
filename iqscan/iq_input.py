@@ -5,7 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +73,20 @@ def format_rate(rate):
     """Plain decimal sample rate for filenames and text; never exponent notation."""
     rate = float(rate)
     return str(int(rate)) if rate.is_integer() else f"{rate:.3f}".rstrip("0").rstrip(".")
+
+
+def shell_quote(text):
+    """Quote one argument for this platform's shell (cmd.exe on Windows)."""
+    return subprocess.list2cmdline([str(text)]) if os.name == "nt" else shlex.quote(str(text))
+
+
+def open_command(path):
+    """Command that opens a file with the default application on this platform."""
+    if sys.platform == "darwin":
+        return "open " + shell_quote(path)
+    if os.name == "nt":
+        return 'start "" ' + shell_quote(path)
+    return "xdg-open " + shell_quote(path)
 
 
 def _sigmf_paths(path):

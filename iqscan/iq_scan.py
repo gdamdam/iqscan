@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
-__version__ = '1.5.0'
-import argparse, csv, html, json, math, os, shlex, sys, tempfile, zipfile
+__version__ = '1.6.0'
+import argparse, csv, html, json, math, os, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -334,7 +334,7 @@ def clips(meta,args,events,out):
     # Open the recording only when clips are actually wanted; a redetect run may no
     # longer have the original file.
     if not args.clips: return
-    from .iq_input import format_rate
+    from .iq_input import format_rate, shell_quote
     folder=out/'clips';folder.mkdir()
     with open(meta['input'],'rb') as src:
         for e in events[:args.clips]:
@@ -367,7 +367,7 @@ def clips(meta,args,events,out):
             else:
                 sidecar = path
                 e['clip_warning'] = 'QI component order preserved; configure the external viewer accordingly'
-            e['open_command']='inspectrum '+shlex.quote(str(sidecar.resolve()))
+            e['open_command']='inspectrum '+shell_quote(str(sidecar.resolve()))
 
 
 def signal_analysis_brief(event):
@@ -502,6 +502,7 @@ def report(meta,args,events,f,norm,reference,dt,out):
     page=inject(page,plots,events,meta.get('spectrum_context',{}).get('bands',[]),center)
     (out/'report.html').write_text(page,encoding='utf-8')
     instructions=['Open clips with inspectrum; set sample rate to '+rate_text+'.','Frequency offsets are relative to '+str(center)+' Hz.','Clips are exact excerpts, not filtered or frequency-shifted.','']
+    if os.name=='nt': instructions.insert(1,'inspectrum has no official Windows build: open a clip together with its .sigmf-meta in a SigMF-aware viewer such as IQEngine, or run inspectrum under WSL.')
     for e in events:
         if 'clip' in e:instructions.extend([f"Event {e['id']}: original start {format_time(e['clip_start_original_s'])}; event begins {format_time(e['event_start_in_clip_s'])} into clip; offset {e['center_offset_hz']/1000:+.3f} kHz.",e['open_command'],''])
     (out/'OPEN-CLIPS.txt').write_text('\n'.join(instructions),encoding='utf-8')
@@ -622,14 +623,14 @@ def main(argv=None):
                 meta,args,events = portable_report(meta,args,events)
             report(meta,args,events,f,norm,reference,dt,out)
             if args.save_spectrum: save_spectrum(meta,spectrum_args,f,norm,reference,dt,out)
-        colored=args.color=='always' or args.color=='auto' and sys.stdout.isatty() and 'NO_COLOR' not in os.environ and os.environ.get('TERM')!='dumb'
+        colored=args.color=='always' or args.color=='auto' and sys.stdout.isatty() and 'NO_COLOR' not in os.environ and os.environ.get('TERM')!='dumb' and (os.name!='nt' or any(k in os.environ for k in ('WT_SESSION','TERM_PROGRAM','ANSICON')))
         paint=lambda s:f'\033[96m{s}\033[0m' if colored else s
         print(paint('\nIQ SCAN — candidate activity'))
         if meta.get('scan_start_s'):
             print('Times are relative to the scan interval; original source start: '+format_time(meta['scan_start_s']))
         if meta.get('rail_fraction',0) >= .001:
             print(f"WARNING: {100*meta['rail_fraction']:.2f}% of integer I/Q components hit digital rails.")
-        from .iq_input import format_rate
+        from .iq_input import format_rate, open_command
         print(f'{format_time(meta["duration_s"])} | {format_rate(meta["sample_rate"])} samples/s | {meta["format"]}')
         context=meta.get('spectrum_context',{})
         print('Band plan:',args.bandplan,'| frequency references only, not identification')
@@ -648,7 +649,7 @@ def main(argv=None):
         if not events:print('No candidates above these thresholds. This does not prove no signal was present.')
         print('Contrast is not calibrated SNR. Candidates may be interference or receiver artifacts.')
         print(paint(f'\nReport: {out / "report.html"}'))
-        print('Open report: open '+shlex.quote(str(out/'report.html')))
+        print('Open report: '+open_command(out/'report.html'))
         print(f'Clip commands: {out / "OPEN-CLIPS.txt"}')
         if args.open:
             import webbrowser

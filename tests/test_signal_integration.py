@@ -43,12 +43,12 @@ class SignalIntegrationTests(unittest.TestCase):
             norm = np.zeros((2, 16), dtype=float)
             reference = np.zeros(2, dtype=float)
             iq_scan.report(meta, args, [event], f, norm, reference, .5, out)
-            page = (out / "report.html").read_text()
+            page = (out / "report.html").read_text(encoding='utf-8')
             self.assertIn("Signal analysis (candidate evidence)", page)
             self.assertIn("&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;", page)
             self.assertIn("AX.25 (confirmed): valid HDLC frame and FCS", page)
             self.assertNotIn("<td>AM (low): </script>", page)
-            payload = json.loads((out / "events.json").read_text())["events"][0]
+            payload = json.loads((out / "events.json").read_text(encoding='utf-8'))["events"][0]
             self.assertEqual(payload["signal_analysis"]["symbol_rate_baud"], 1200.0)
             with (out / "events.csv").open(newline="") as handle:
                 row = next(csv.DictReader(handle))

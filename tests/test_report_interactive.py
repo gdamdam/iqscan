@@ -45,7 +45,7 @@ class ReportInspectionTests(unittest.TestCase):
             out.mkdir()
             with patch.object(Axes, 'imshow', capture):
                 iq_scan.report(meta, args, [event], f, norm, reference, dt, out)
-            page = (out / 'report.html').read_text()
+            page = (out / 'report.html').read_text(encoding='utf-8')
             data = json.loads(page.split('type="application/json">')[1].split('</script>')[0])
             for name in ('waterfall.png', 'images/event-01.png'):
                 panel_data = data['plots'][name][0]

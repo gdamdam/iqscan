@@ -36,7 +36,10 @@ def default_reference_cache():
     """Keep source checkouts self-contained; installed packages use user cache."""
     local=ROOT.parent/'.cache/spectrum'
     if (ROOT.parent/'.git').exists(): return local
-    base=Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache')).expanduser()
+    if os.name=='nt':
+        base=Path(os.environ.get('LOCALAPPDATA',str(Path.home()/'AppData/Local'))).expanduser()
+    else:
+        base=Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache')).expanduser()
     return base/'iqscan'/'spectrum'
 
 

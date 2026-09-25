@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["playwright>=1.48,<2"]
-video = ["Pillow>=10,<13", "skyfield>=1.50,<2"]
+video = ["Pillow>=10,<13", "skyfield>=1.50,<2", "tzdata; sys_platform == 'win32'"]
 
 [project.scripts]
 iqscan = "iqscan.iq_scan:main"

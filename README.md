@@ -18,12 +18,12 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="version 1.5.0" src="https://img.shields.io/badge/version-1.5.0-0f766e?style=for-the-badge">
+<img alt="version 1.6.0" src="https://img.shields.io/badge/version-1.6.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">
 <img alt="Report" src="https://img.shields.io/badge/report-offline%20HTML-0f766e?style=flat-square">
-<img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux-334155?style=flat-square">
+<img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-334155?style=flat-square">
 <a href="LICENSE"><img alt="GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square"></a>
 <a href="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml/badge.svg"></a>
 </p>
@@ -43,6 +43,10 @@ cd iqscan
 Replace the path, sample rate, and center frequency with your recording's values.
 The launcher creates `.venv` and installs dependencies on first use. It saves a
 report under `scans/` and opens it in your browser. Your recording is never modified.
+
+On Windows use `scan.cmd` with the same arguments (it creates `.venv` and installs
+the package on first use); inspectrum has no official Windows build, so open clips
+with their `.sigmf-meta` in a SigMF-aware viewer such as IQEngine, or under WSL.
 
 **Use the saved sample rate after decimation.** Metadata can also come from a
 SigMF/WAV header (including the SDR#/HDSDR `auxi` center frequency) or a filename such as

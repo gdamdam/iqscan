@@ -47,6 +47,8 @@ iqscan /path/to/recording_500000SPS_137900000Hz.cs8
 
 The source checkout also provides `./scan.sh`, which creates its local virtual environment
 on first use. Installed commands use the Python environment that installed `iqscan`.
+Windows users run `scan.cmd` with the same arguments. Printed open commands use
+`start` on Windows and `xdg-open` on Linux.
 
 ---
 

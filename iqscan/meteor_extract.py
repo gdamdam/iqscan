@@ -17,7 +17,9 @@ from .iq_input import read_metadata
 
 
 SATDUMP_APPS = (Path('/Applications/SatDump.app/Contents/MacOS/satdump'),
-                Path('~/Applications/SatDump.app/Contents/MacOS/satdump').expanduser())
+                Path('~/Applications/SatDump.app/Contents/MacOS/satdump').expanduser(),
+                Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'SatDump' / 'satdump.exe',
+                Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local'))) / 'Programs' / 'SatDump' / 'satdump.exe')
 SATELLITES = ('M2-3', 'M2-4')
 
 

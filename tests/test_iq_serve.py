@@ -1,4 +1,4 @@
-import json,shlex,sys,tempfile,threading,unittest
+import json,os,shlex,subprocess,sys,tempfile,threading,unittest
 import inspect
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -51,8 +51,13 @@ class ServeTests(unittest.TestCase):
 
     def test_rejects_symlink_scan_directories_and_cache_files(self):
         outside=Path(self.tmp.name)/'outside';outside.mkdir();(outside/'spectrum.npz').write_bytes((self.scan/'spectrum.npz').read_bytes())
-        linked_dir=self.scans/'linked-dir';linked_dir.symlink_to(self.scan,target_is_directory=True)
-        linked_cache=self.scans/'linked-cache';linked_cache.mkdir();(linked_cache/'spectrum.npz').symlink_to(self.scan/'spectrum.npz')
+        linked_dir=self.scans/'linked-dir'
+        linked_cache=self.scans/'linked-cache';linked_cache.mkdir()
+        try:
+            linked_dir.symlink_to(self.scan,target_is_directory=True)
+            (linked_cache/'spectrum.npz').symlink_to(self.scan/'spectrum.npz')
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks unavailable')
         self.assertEqual([s['id'] for s in self.state.available()],['run-one'])
         for bad in ('linked-dir','linked-cache'):
             with self.assertRaises(ValueError):self.state.resolve(bad)
@@ -121,8 +126,13 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(status,200)
         args=iq_serve.detect_params({'min_duration':['0']},{k:getattr(iq_scan.parser().parse_args([]),k) for k in iq_serve.DETECT_ARGS},32000)
         scan_id='scan;$(touch pwned)'
-        command=iq_serve.command_for(scan_id,args,Path('/tmp/custom scans'))
-        self.assertEqual(shlex.split(command)[4],str((Path('/tmp/custom scans').resolve()/scan_id).resolve()))
+        root=Path(self.tmp.name)/'custom scans'
+        command=iq_serve.command_for(scan_id,args,root)
+        expected=str((root.resolve()/scan_id).resolve())
+        if os.name=='nt':
+            self.assertIn(subprocess.list2cmdline([expected]),command)
+        else:
+            self.assertEqual(shlex.split(command)[4],expected)
 
     def test_skips_truncated_and_invalid_caches(self):
         bad=self.scans/'truncated';bad.mkdir();(bad/'spectrum.npz').write_bytes(b'PK\x03\x04truncated')

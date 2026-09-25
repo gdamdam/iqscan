@@ -66,14 +66,14 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=self.fixture(root);out=root/'portable'
             self.assertEqual(self.run_scan([str(path),'--output',str(out),'--portable','--channel-clips','1','--fft-size','1024','--time-bin','.032']),0)
-            doc=json.loads((out/'events.json').read_text())
+            doc=json.loads((out/'events.json').read_text(encoding='utf-8'))
             self.assertTrue(doc['metadata']['portable_report'])
             for name in ('events.json','events.csv','OPEN-CLIPS.txt','report.html'):
-                self.assertNotIn(str(root), (out/name).read_text())
+                self.assertNotIn(str(root), (out/name).read_text(encoding='utf-8'))
             channel=doc['events'][0]['channel_clip'];self.assertTrue((out/channel).exists())
-            sidecar=json.loads((out/doc['events'][0]['channel_sigmf']).read_text())
+            sidecar=json.loads((out/doc['events'][0]['channel_sigmf']).read_text(encoding='utf-8'))
             self.assertEqual(sidecar['annotations'][0]['core:sample_count'],doc['events'][0]['channel_metadata']['samples'])
-            exact=json.loads((out/doc['events'][0]['clip_metadata']).read_text())
+            exact=json.loads((out/doc['events'][0]['clip_metadata']).read_text(encoding='utf-8'))
             self.assertIn('candidate',exact['annotations'][0]['core:label'])
             with (out/'events.csv').open() as file:
                 rows=list(csv.DictReader(file))
@@ -107,15 +107,15 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=self.fixture(root);out=root/'baseband'
             self.assertEqual(self.run_scan([str(path),'--center-frequency','0','--output',str(out),'--fft-size','1024','--time-bin','.032']),0)
-            document=json.loads((out/'events.json').read_text())
+            document=json.loads((out/'events.json').read_text(encoding='utf-8'))
             self.assertEqual(document['metadata']['center_frequency_hz'],0)
-            self.assertIn('Center: 0.0 Hz', (out/'report.html').read_text())
+            self.assertIn('Center: 0.0 Hz', (out/'report.html').read_text(encoding='utf-8'))
             event=document['events'][0]
-            self.assertIn(f"{event['frequency_hz']/1e6:.6f} MHz", (out/'report.html').read_text())
+            self.assertIn(f"{event['frequency_hz']/1e6:.6f} MHz", (out/'report.html').read_text(encoding='utf-8'))
 
     def test_integer_rail_warning_is_visible(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=root/'rail_32000SPS.cs8';path.write_bytes(bytes([127])*8192)
             out=root/'scan'
             self.assertEqual(self.run_scan([str(path),'--output',str(out),'--clips','0']),0)
-            self.assertIn('Clipping warning', (out/'report.html').read_text())
+            self.assertIn('Clipping warning', (out/'report.html').read_text(encoding='utf-8'))

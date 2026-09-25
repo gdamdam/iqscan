@@ -2,7 +2,6 @@
 import copy
 import json
 import math
-import shlex
 from argparse import Namespace
 from pathlib import Path
 
@@ -89,8 +88,9 @@ def portable_report(meta, args, events):
         if meta.get(key):
             meta[key] = Path(meta[key]).name
     # Fingerprints intentionally retain identity but contain no source paths.
+    from .iq_input import shell_quote
     for event in events:
         if event.get('clip'):
-            event['open_command'] = 'inspectrum ' + shlex.quote(event.get('clip_metadata', event['clip']))
+            event['open_command'] = 'inspectrum ' + shell_quote(event.get('clip_metadata', event['clip']))
     meta['portable_report'] = True
     return meta, Namespace(**settings), events

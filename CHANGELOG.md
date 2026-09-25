@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0 — 2026-09-25
+
+- Windows support: `scan.cmd` launcher, cmd.exe-style quoting for printed commands, `start`/`xdg-open` report commands per platform, SatDump lookup in Program Files and per-user Programs, reference cache under `%LOCALAPPDATA%`, `tzdata` installed with the video extra, and ANSI colour only in terminals that render it.
+- Tests run on Windows (CI matrix adds windows-latest); symlink checks skip where symlinks are unavailable.
+
 ## 1.5.0 — 2026-09-25
 
 - Fixed clip and channel filenames for recordings at 1 MS/s and above: sample rates are written as plain decimals (`2400000SPS`) instead of exponent notation that the filename parser misread as 6 samples/s. Report and terminal text use the same form.
