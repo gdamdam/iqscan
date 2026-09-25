@@ -3,6 +3,7 @@ setlocal
 set "SCAN_DIR=%~dp0"
 set "SCAN_DIR=%SCAN_DIR:~0,-1%"
 set "PY=%SCAN_DIR%\.venv\Scripts\python.exe"
+set PYTHONUTF8=1
 if not exist "%PY%" (
     py -3 -m venv "%SCAN_DIR%\.venv" 2>nul || python -m venv "%SCAN_DIR%\.venv" || exit /b 1
 )
