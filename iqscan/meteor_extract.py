@@ -5,16 +5,19 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import re
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from iq_input import read_metadata
+from .iq_input import read_metadata
 
 
-SATDUMP_APP = Path('/Applications/_RADIO/SatDump.app/Contents/MacOS/satdump')
+SATDUMP_APPS = (Path('/Applications/SatDump.app/Contents/MacOS/satdump'),
+                Path('~/Applications/SatDump.app/Contents/MacOS/satdump').expanduser())
 SATELLITES = ('M2-3', 'M2-4')
 
 
@@ -45,17 +48,19 @@ def parser():
 
 
 def satdump_binary(value):
+    value = value or os.environ.get('SATDUMP')
     if value:
-        path = value.expanduser().resolve()
+        path = Path(value).expanduser().resolve()
         if not path.is_file():
             raise ValueError(f'SatDump executable not found: {path}')
         return path
     found = shutil.which('satdump')
     if found:
         return Path(found).resolve()
-    if SATDUMP_APP.is_file():
-        return SATDUMP_APP
-    raise ValueError('SatDump CLI not found; install it or pass --satdump PATH')
+    for app in SATDUMP_APPS:
+        if app.is_file():
+            return app
+    raise ValueError('SatDump CLI not found; install it, set SATDUMP, or pass --satdump PATH')
 
 
 def cli_style(binary, selected):
@@ -67,9 +72,12 @@ def cli_style(binary, selected):
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ValueError(f'Cannot probe SatDump version; pass --satdump-cli stable or v2: {exc}') from exc
     output = probe.stdout + probe.stderr
-    if '2.0.0' in output or 'SUBCOMMANDS:' in output:
+    version = re.search(r'\bv?(\d+)\.(\d+)\.(\d+)', output)
+    if version:
+        return 'v2' if int(version[1]) >= 2 else 'stable'
+    if 'SUBCOMMANDS:' in output:
         return 'v2'
-    if '1.2.' in output or '[pipeline_id] [input_level]' in output:
+    if '[pipeline_id] [input_level]' in output:
         return 'stable'
     raise ValueError('Unknown SatDump CLI syntax; pass --satdump-cli stable or v2')
 
@@ -171,7 +179,7 @@ def main(argv=None):
         if args.video:
             try:
                 try:
-                    from meteor_video import load_context, render
+                    from .meteor_video import load_context, render
                 except ImportError as exc:
                     raise ValueError('Video dependencies missing; install Pillow and Skyfield (pip install iqscan[video])') from exc
                 video_context = load_context(meta, args)
@@ -182,7 +190,7 @@ def main(argv=None):
                 video_ok = False
                 manifest['video_error'] = str(exc)
                 print(f'Video rendering failed: {exc}', file=sys.stderr)
-        (out / 'extraction.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        (out / 'extraction.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
         print(f'Saved {len(images)} channel image(s), {len(data)} data product(s) in {out}')
         if completed.returncode:
             print(f'SatDump exited with code {completed.returncode}; check {log_path}', file=sys.stderr)

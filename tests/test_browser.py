@@ -10,8 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
-import iq_scan
-import iq_serve
+from iqscan import iq_scan
+from iqscan import iq_serve
 
 
 def write_recording(path, sample_rate, duration, bursts=()):

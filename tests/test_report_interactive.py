@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from report_interactive import panel, inject
+from iqscan.report_interactive import panel, inject
 
 class ReportInspectionTests(unittest.TestCase):
     def test_image_coordinates_and_level_grid(self):
@@ -25,7 +25,7 @@ class ReportInspectionTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
         from matplotlib.axes import Axes
-        import iq_scan
+        from iqscan import iq_scan
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / 'capture_32000SPS.cs8'

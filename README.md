@@ -18,7 +18,7 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="version 1.4.1" src="https://img.shields.io/badge/version-1.4.1-0f766e?style=for-the-badge">
+<img alt="version 1.5.0" src="https://img.shields.io/badge/version-1.5.0-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">

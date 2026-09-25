@@ -307,6 +307,12 @@ Detection skips the central ±2 kHz DC region and the outer 5% of each band edge
 `--dc-exclude 0` if activity at center matters, accepting DC artifacts. The displayed
 waterfall still shows those regions.
 
+Each time row is levelled against the median of bins whose offset lies between 22% and
+40% of the sample rate. A strong or wideband signal inside that band biases every other
+bin in the row. Move the band with `--reference-band LO HI` (fractions of the sample
+rate, e.g. `--reference-band 0.05 0.15`); it is part of the cached spectrum shaping, so
+changing it needs a fresh scan.
+
 **This is an activity detector, not transmitter identification.** Concretely:
 
 - Gain transitions, receiver spurs and local interference show up as candidates.

@@ -34,8 +34,8 @@ def builtin_signals():
 
 def default_reference_cache():
     """Keep source checkouts self-contained; installed packages use user cache."""
-    local=ROOT/'.cache/spectrum'
-    if (ROOT/'.git').exists(): return local
+    local=ROOT.parent/'.cache/spectrum'
+    if (ROOT.parent/'.git').exists(): return local
     base=Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache')).expanduser()
     return base/'iqscan'/'spectrum'
 
@@ -281,6 +281,6 @@ def plot_context(meta,out):
     ax.invert_yaxis();ax.set_xlim(lo,hi);ax.set_xlabel('Frequency (MHz)');ax.ticklabel_format(useOffset=False,axis='x');ax.grid(axis='x',alpha=.2)
     ax.set_title('Spectrum references — NOT detected signal identities\nCommunity plan + catalog entries; not verified current operation')
     fig.savefig(out/'spectrum-context.png',dpi=140)
-    from report_interactive import panel
+    from .report_interactive import panel
     result=panel(fig,ax,'reference');plt.close(fig)
     return result

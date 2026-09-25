@@ -295,7 +295,7 @@ def analyze_samples(samples: Any, sample_rate: float, analysis_bandwidth_hz: Opt
     # AX.25 burst has an on/off envelope and can otherwise be mislabeled OOK;
     # only valid HDLC framing, address fields and CRC may confirm the protocol.
     try:
-        from protocol_decode import decode_ax25_afsk  # type: ignore
+        from .protocol_decode import decode_ax25_afsk  # type: ignore
         decoded = decode_ax25_afsk(a, fs)
         if isinstance(decoded, dict) and decoded.get("status") == "confirmed":
             protocol = {
@@ -332,7 +332,7 @@ def analyze_samples(samples: Any, sample_rate: float, analysis_bandwidth_hz: Opt
 
 def _read_raw(path: Path, fmt: str, offset: int, count: int) -> np.ndarray:
     """Compatibility reader for tests and callers with an explicit byte offset."""
-    from iq_input import read_samples
+    from .iq_input import read_samples
     byte_size = {"cs8": 2, "cu8": 2, "cs16": 4,
                  "cf32_le": 8, "cf32_be": 8}.get(fmt)
     if byte_size is None:
@@ -392,7 +392,7 @@ def _stream_channelize(meta: Dict[str, Any], first: int, count: int, center_hz: 
     carries state across reads, so chunk boundaries do not alias or lose data.
     The returned array never exceeds ``max_output_samples``.
     """
-    from iq_input import read_samples
+    from .iq_input import read_samples
     fs = float(meta["sample_rate"])
     if not _finite(fs) or fs <= 0:
         raise ValueError("invalid sample rate")

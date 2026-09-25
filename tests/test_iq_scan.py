@@ -2,7 +2,7 @@ import json,sys,unittest,tempfile
 from pathlib import Path
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import iq_scan
+from iqscan import iq_scan
 
 class ScannerTests(unittest.TestCase):
     def test_long_event_window_note_is_not_presented_as_receiver_warning(self):
@@ -65,7 +65,7 @@ class ScannerTests(unittest.TestCase):
             self.assertTrue((base/'spectrum.npz').exists())
             # The cached matrix reproduces a freshly computed one, so redetect is faithful.
             meta,f,norm,ref,dt,spectrum_args=iq_scan.load_spectrum(base)
-            self.assertEqual(spectrum_args,{'fft_size':1024,'time_bin':.032,'max_rows':2000})
+            self.assertEqual(spectrum_args,{'fft_size':1024,'time_bin':.032,'max_rows':2000,'reference_band':[.22,.4]})
             args=iq_scan.parser().parse_args([str(path),*shape])
             fresh=iq_scan.spectrum(iq_scan.metadata(args),args)[1]
             np.testing.assert_allclose(norm,fresh,rtol=0,atol=1e-4)

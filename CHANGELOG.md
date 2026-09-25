@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0 — 2026-09-25
+
+- Fixed clip and channel filenames for recordings at 1 MS/s and above: sample rates are written as plain decimals (`2400000SPS`) instead of exponent notation that the filename parser misread as 6 samples/s. Report and terminal text use the same form.
+- Source fingerprints now hash 16 evenly spaced 1 MiB blocks instead of the whole payload, removing a full extra read of the recording before every scan and redetect. Caches written by earlier versions keep their full-payload check.
+- Added `--reference-band LO HI` to move the per-time level reference away from signals of interest; the band is stored with the cached spectrum shaping.
+- WAV input accepts 8-bit PCM, 16-bit PCM and 32-bit float stereo, including WAVE_FORMAT_EXTENSIBLE, and reads the center frequency from the SDR#/HDSDR `auxi` chunk. Filenames with `kHz`, `MHz`, `kSPS` or `MSPS` now parse.
+- The explorer rejects requests whose Host header is not loopback.
+- Meteor extraction looks for SatDump in `PATH`, `$SATDUMP`, and the standard application folders, and reads the CLI generation from the reported version number.
+- Reports, event JSON/CSV and clip instructions are always written as UTF-8. The persistent-peak smoothing window scales with FFT size. ffmpeg is always reaped after a failed video write.
+- Modules now live in the `iqscan` package; run `python -m iqscan` or the `iqscan` script instead of `iq_scan.py`. Added a ruff configuration.
+
 ## 1.4.1 — 2026-09-23
 
 - Channel exports now apply the channelizer's sample cap before choosing the window and keep it centered on the event, so long padding can no longer push the detected signal out of the clip.

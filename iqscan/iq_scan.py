@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
-__version__ = '1.4.1'
-import argparse, csv, html, json, math, os, re, shlex, sys, tempfile, zipfile
+__version__ = '1.5.0'
+import argparse, csv, html, json, math, os, shlex, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +49,7 @@ def parser():
     p.add_argument('--fft-size',type=int,default=4096,help='Power of two, 256..16384')
     p.add_argument('--time-bin',type=positive,default=.1,help='Requested time resolution in seconds')
     p.add_argument('--max-rows',type=int,default=2000,help='Bound analysis memory; long files get coarser time bins')
+    p.add_argument('--reference-band',type=nonnegative,nargs=2,default=[.22,.4],metavar=('LO','HI'),help='Per-time level reference: |offset| between these fractions of the sample rate; keep signals of interest outside it')
     p.add_argument('--threshold',type=positive,default=7,help='Transient excess above each frequency baseline, dB')
     p.add_argument('--min-duration',type=nonnegative,default=.15,help='Minimum transient duration in seconds')
     p.add_argument('--dc-exclude',type=float,default=2000,help='Ignore this many Hz either side of center in detection')
@@ -63,7 +64,7 @@ def parser():
     p.add_argument('--max-clip-seconds',type=positive,default=10,help='Cap each clip; long events are clipped around strongest time')
     p.add_argument('--analyze-signals',action='store_true',help='Inspect bounded raw IQ around each event for modulation and symbol-rate candidates')
     p.add_argument('--color',choices=['auto','always','never'],default='auto')
-    from spectrum_refs import add_arguments
+    from .spectrum_refs import add_arguments
     add_arguments(p)
     return p
 
@@ -109,6 +110,7 @@ def validate_args(args, sample_rate=None):
         raise ValueError('--max-rows must be 10..10000')
     if args.fft_size<256 or args.fft_size>16384 or args.fft_size&(args.fft_size-1):
         raise ValueError('--fft-size must be a power of two from 256 to 16384')
+    validate_reference_band(args.reference_band)
     if args.clips<0:
         raise ValueError('--clips must be nonnegative')
     if not math.isfinite(args.padding) or args.padding<0:
@@ -117,8 +119,16 @@ def validate_args(args, sample_rate=None):
         raise ValueError('--max-clip-seconds must be positive and finite')
 
 
+def validate_reference_band(band):
+    ok = (isinstance(band,(list,tuple)) and len(band)==2
+          and all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in band)
+          and 0<=band[0]<band[1]<=.5)
+    if not ok:
+        raise ValueError('--reference-band needs 0 <= LO < HI <= 0.5 (fractions of the sample rate)')
+
+
 def metadata(args):
-    from iq_input import read_metadata
+    from .iq_input import read_metadata
     meta = read_metadata(args.file, format=args.format, sample_rate=args.sample_rate,
                          center_frequency=args.center_frequency, iq_order=args.iq_order)
     validate_args(args, meta['sample_rate'])
@@ -139,7 +149,7 @@ def metadata(args):
 
 def spectrum(meta,args):
     import numpy as np
-    from iq_input import read_samples
+    from .iq_input import read_samples
     n=args.fft_size; fs=meta['sample_rate']; frames=math.ceil(meta['samples']/n)
     navg=max(1,round(args.time_bin*fs/n),math.ceil(frames/args.max_rows))
     rows=math.ceil(frames/navg); w=np.hanning(n)
@@ -162,16 +172,19 @@ def spectrum(meta,args):
     print('\rScanning 100%',file=sys.stderr)
     ps=np.fft.fftshift(ps,axes=1); f=np.fft.fftshift(np.fft.fftfreq(n,1/fs)); dt=navg*n/fs
     db=10*np.log10(np.maximum(ps,1e-30))
-    reference=np.median(db[:,(abs(f)>.22*fs)&(abs(f)<.4*fs)],axis=1)
+    lo,hi=args.reference_band
+    reference=np.median(db[:,(abs(f)>lo*fs)&(abs(f)<hi*fs)],axis=1)
     norm=db-reference[:,None]
-    meta.update(time_bin_s=dt,frequency_bin_hz=fs/n,rail_fraction=rail/total,rows=rows,
+    meta.update(time_bin_s=dt,frequency_bin_hz=fs/n,rail_fraction=rail/total,rows=rows,reference_band=list(args.reference_band),
                 analysis_note='All samples processed; final FFT zero padded if incomplete. PSD levels are relative digital units, not calibrated RF power.')
     return f,norm,reference,dt
 
 
 # Only what shapes the cached matrix. dc_exclude and threshold live in detect(),
 # so a redetect run is free to change them.
-SPECTRUM_ARGS = ('fft_size','time_bin','max_rows')
+SPECTRUM_ARGS = ('fft_size','time_bin','max_rows','reference_band')
+# Caches written before 1.5.0 predate --reference-band and used this fixed band.
+LEGACY_SHAPING = {'reference_band': [.22,.4]}
 
 
 def save_spectrum(meta,spectrum_args,f,norm,reference,dt,out):
@@ -224,6 +237,8 @@ def validate_cache_metadata(meta, shaping, dt):
         raise ValueError('Invalid cached FFT shaping')
     if not math.isclose(meta['frequency_bin_hz'], meta['sample_rate'] / n):
         raise ValueError('Inconsistent cached frequency bins')
+    if 'reference_band' in shaping:
+        validate_reference_band(shaping['reference_band'])
 
 
 def cache_summary(directory):
@@ -299,7 +314,8 @@ def detect(meta,args,f,norm,dt):
         local=np.where(region,excess[sl],-np.inf);loc=np.unravel_index(local.argmax(),local.shape)
         events.append(event('transient',ti,fi,ti.start+loc[0],local[loc],pixels))
     # Persistent narrow peaks relative to nearby frequencies; not satellite IDs.
-    smooth=median_filter(baseline,size=101,mode='nearest'); contrast=baseline-smooth
+    # Smoothing window scales with FFT size (~2.5% of the band; 103 bins at 4096).
+    smooth=median_filter(baseline,size=2*(len(f)//80)+1,mode='nearest'); contrast=baseline-smooth
     labs,_=label((contrast>=args.threshold)&valid)
     for sl in find_objects(labs):
         if sl is None:continue
@@ -318,6 +334,7 @@ def clips(meta,args,events,out):
     # Open the recording only when clips are actually wanted; a redetect run may no
     # longer have the original file.
     if not args.clips: return
+    from .iq_input import format_rate
     folder=out/'clips';folder.mkdir()
     with open(meta['input'],'rb') as src:
         for e in events[:args.clips]:
@@ -325,7 +342,7 @@ def clips(meta,args,events,out):
             if b-a>args.max_clip_seconds:
                 a=max(a,e['peak_time_s']-args.max_clip_seconds/2);b=min(meta['duration_s'],a+args.max_clip_seconds)
             first=int(a*meta['sample_rate']);last=min(meta['samples'],math.ceil(b*meta['sample_rate']))
-            name=f"event-{e['id']:02d}_{meta['sample_rate']:g}SPS.{meta['format']}";path=folder/name
+            name=f"event-{e['id']:02d}_{format_rate(meta['sample_rate'])}SPS.{meta['format']}";path=folder/name
             src.seek(meta.get('data_offset',0)+first*meta['bytes_per_complex']);remaining=(last-first)*meta['bytes_per_complex']
             with path.open('wb') as dest:
                 while remaining:
@@ -334,7 +351,7 @@ def clips(meta,args,events,out):
                     dest.write(chunk);remaining-=len(chunk)
             e.update(clip=f'clips/{name}',clip_start_original_s=meta.get('scan_start_s',0)+first/meta['sample_rate'],clip_duration_s=(last-first)/meta['sample_rate'],
                      event_start_in_clip_s=max(0,e['start_s']-first/meta['sample_rate']))
-            from iq_input import write_sigmf
+            from .iq_input import write_sigmf
             if meta.get('iq_order', 'IQ') == 'IQ':
                 datatype = {'cs8':'ci8','cs16':'ci16_le','cu8':'cu8','cf32_le':'cf32_le','cf32_be':'cf32_be'}[meta['format']]
                 event_first = max(0, int(e['start_s'] * meta['sample_rate']) - first)
@@ -400,8 +417,9 @@ def report(meta,args,events,f,norm,reference,dt,out):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.ticker import FuncFormatter
-    from spectrum_refs import html_context, plot_context, brief
-    from report_interactive import panel, inject
+    from .spectrum_refs import html_context, plot_context, brief
+    from .report_interactive import panel, inject
+    from .iq_input import format_rate
     plots={}
     context_panel=plot_context(meta,out)
     if context_panel:plots["spectrum-context.png"]=[context_panel]
@@ -450,9 +468,9 @@ def report(meta,args,events,f,norm,reference,dt,out):
         for key in ('start_s','end_s','duration_s','peak_time_s','clip_start_original_s','clip_duration_s','event_start_in_clip_s'):
             if key in e: e[key[:-2]+'_hms'] = format_time(e[key])
     meta['duration_hms'] = format_time(meta['duration_s'])
-    (out/'events.json').write_text(json.dumps(dict(metadata=meta,settings=vars_serial(args),events=events),indent=2)+'\n')
+    (out/'events.json').write_text(json.dumps(dict(metadata=meta,settings=vars_serial(args),events=events),indent=2)+'\n',encoding='utf-8')
     fields=list(dict.fromkeys(k for e in events for k in e)) or ['id','kind','start_s','end_s','frequency_hz']
-    with (out/'events.csv').open('w',newline='') as fp:
+    with (out/'events.csv').open('w',newline='',encoding='utf-8') as fp:
         writer=csv.DictWriter(fp,fieldnames=fields);writer.writeheader();writer.writerows({k:json.dumps(v,ensure_ascii=False) if isinstance(v,(list,dict)) else v for k,v in e.items()} for e in sorted(events,key=lambda e:(e['start_s'],e['id'])))
     table=[]
     for e in events:
@@ -468,7 +486,12 @@ def report(meta,args,events,f,norm,reference,dt,out):
     gallery=''.join(f'<h2>Event {e["id"]}</h2><img loading="lazy" src="{e["image"]}" alt="Event {e["id"]} close-up">' for e in events if 'image' in e)
     context_html=html_context(meta)
     if (out/'spectrum-context.png').exists(): context_html+='<img src="spectrum-context.png" alt="Band and known-signal reference chart">'
-    page=f'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>IQ scan</title><style>body{{background:#10151e;color:#e5edf8;font:16px system-ui;max-width:1200px;margin:30px auto;padding:20px}}a{{color:#79dfff}}img{{width:100%}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #354050}}.scroll{{overflow-x:auto}}code{{overflow-wrap:anywhere}}</style><h1>IQ recording scan</h1><p>{html.escape(Path(meta['input']).name)}</p><p>{format_time(meta['duration_s'])} duration · {meta['sample_rate']:g} samples/s · {meta['format']} · {len(events)} reported candidates</p><p>Resolution: {format_time(dt)} × {meta['frequency_bin_hz']:.1f} Hz. Center: {center if center is not None else 'unknown; offsets only'} Hz.</p><img src="waterfall.png" alt="Annotated waterfall and broadband level"><div class="scroll"><table><tr><th>ID</th><th>Type</th><th>Elapsed time (hh:mm:ss.mmm)</th><th>Frequency</th><th>Detected width (Hz)</th><th>Contrast (dB)</th><th>Clip</th><th>Frequency references (not identification)</th><th>Signal analysis (candidate evidence)</th></tr>{''.join(table)}</table></div><p>{note}</p><p>Signal analysis is an optional bounded raw-IQ heuristic. Candidate modulation and symbol rates are evidence for review, not general protocol identification. Where present, confirmed protocol evidence comes from a supported decoder check. A missing raw recording leaves analysis unknown.</p><p>Clips preserve the original format, sample rate and full bandwidth. Use sample rate {meta['sample_rate']:g} in inspectrum. Clip time starts at zero. See events.json for original start times and open commands.</p>{context_html}{gallery}'''
+    rate_text=format_rate(meta['sample_rate'])
+    page=PAGE_TEMPLATE.format(
+        name=html.escape(Path(meta['input']).name),duration=format_time(meta['duration_s']),rate=rate_text,
+        fmt=meta['format'],count=len(events),resolution=format_time(dt),bin_hz=meta['frequency_bin_hz'],
+        center=center if center is not None else 'unknown; offsets only',rows=''.join(table),note=note,
+        context=context_html,gallery=gallery)
     if meta.get('input_warning'):page=page.replace('<h1>IQ recording scan</h1>','<h1>IQ recording scan</h1><p><strong>Input warning:</strong> '+html.escape(meta['input_warning'])+'</p>')
     if meta.get('scan_start_s'):
         page += '<p>All event and plot times are relative to the selected interval. Source interval starts at '+format_time(meta['scan_start_s'])+'. Clip original-start fields include this offset.</p>'
@@ -477,11 +500,25 @@ def report(meta,args,events,f,norm,reference,dt,out):
     if meta.get('source_warning'):
         page += '<p><strong>Source verification:</strong> '+html.escape(meta['source_warning'])+'</p>'
     page=inject(page,plots,events,meta.get('spectrum_context',{}).get('bands',[]),center)
-    (out/'report.html').write_text(page)
-    instructions=['Open clips with inspectrum; set sample rate to '+str(meta['sample_rate'])+'.','Frequency offsets are relative to '+str(center)+' Hz.','Clips are exact excerpts, not filtered or frequency-shifted.','']
+    (out/'report.html').write_text(page,encoding='utf-8')
+    instructions=['Open clips with inspectrum; set sample rate to '+rate_text+'.','Frequency offsets are relative to '+str(center)+' Hz.','Clips are exact excerpts, not filtered or frequency-shifted.','']
     for e in events:
         if 'clip' in e:instructions.extend([f"Event {e['id']}: original start {format_time(e['clip_start_original_s'])}; event begins {format_time(e['event_start_in_clip_s'])} into clip; offset {e['center_offset_hz']/1000:+.3f} kHz.",e['open_command'],''])
-    (out/'OPEN-CLIPS.txt').write_text('\n'.join(instructions))
+    (out/'OPEN-CLIPS.txt').write_text('\n'.join(instructions),encoding='utf-8')
+
+
+PAGE_TEMPLATE='''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>IQ scan</title>
+<style>body{{background:#10151e;color:#e5edf8;font:16px system-ui;max-width:1200px;margin:30px auto;padding:20px}}a{{color:#79dfff}}img{{width:100%}}
+td,th{{padding:10px;text-align:left;border-bottom:1px solid #354050}}.scroll{{overflow-x:auto}}code{{overflow-wrap:anywhere}}</style>
+<h1>IQ recording scan</h1><p>{name}</p>
+<p>{duration} duration · {rate} samples/s · {fmt} · {count} reported candidates</p>
+<p>Resolution: {resolution} × {bin_hz:.1f} Hz. Center: {center} Hz.</p>
+<img src="waterfall.png" alt="Annotated waterfall and broadband level">
+<div class="scroll"><table><tr><th>ID</th><th>Type</th><th>Elapsed time (hh:mm:ss.mmm)</th><th>Frequency</th><th>Detected width (Hz)</th><th>Contrast (dB)</th><th>Clip</th><th>Frequency references (not identification)</th><th>Signal analysis (candidate evidence)</th></tr>{rows}</table></div>
+<p>{note}</p>
+<p>Signal analysis is an optional bounded raw-IQ heuristic. Candidate modulation and symbol rates are evidence for review, not general protocol identification. Where present, confirmed protocol evidence comes from a supported decoder check. A missing raw recording leaves analysis unknown.</p>
+<p>Clips preserve the original format, sample rate and full bandwidth. Use sample rate {rate} in inspectrum. Clip time starts at zero. See events.json for original start times and open commands.</p>
+{context}{gallery}'''
 
 
 def vars_serial(args):return {k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()}
@@ -496,11 +533,11 @@ def source_state(path):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == 'meteor':
-        from meteor_extract import main as meteor_main
+        from .meteor_extract import main as meteor_main
         return meteor_main(argv[1:])
     args=parser().parse_args(argv)
     try:
-        from spectrum_refs import load as load_references, describe, brief
+        from .spectrum_refs import load as load_references, describe, brief
         if args.update_references:
             catalog=load_references(args)
             for source in catalog['sources']:
@@ -508,7 +545,7 @@ def main(argv=None):
             print('Reference cache:',args.reference_cache)
             return 2 if catalog['warnings'] else 0
         if args.serve is not None:
-            import iq_serve
+            from . import iq_serve
             return iq_serve.serve(args.scan_root or Path.cwd()/'scans',args.serve,open_browser=args.open, overrides={k:getattr(args,k) for k in iq_serve.DETECT_ARGS if any(token == '--'+k.replace('_','-') or token.startswith('--'+k.replace('_','-')+'=') for token in (argv if argv is not None else sys.argv[1:]))})
         if args.file is None and args.redetect is None: raise ValueError('Provide an IQ recording, --redetect DIR, or --update-references')
         if args.file and args.redetect:
@@ -517,14 +554,14 @@ def main(argv=None):
         meta=cached[0] if cached else metadata(args)
         if cached:
             for key in SPECTRUM_ARGS:
-                setattr(args,key,cached[5][key])
+                setattr(args,key,cached[5].get(key,LEGACY_SHAPING.get(key)))
         validate_args(args, meta['sample_rate'])
         out=(args.output or Path.cwd()/'scans'/(Path(meta['input']).stem+'_'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))).expanduser().resolve()
         if out.exists():raise ValueError(f'Output already exists; choose a new directory: {out}')
         catalog=load_references(args) if meta['center_frequency_hz'] is not None else dict(bands=[],signals=[],sources=[],warnings=[],region=args.bandplan)
-        import numpy, scipy
-        from iq_input import fingerprint, verify_source, relocated_source
-        from iq_export import export_channels, portable_report
+        import numpy, scipy  # noqa: F401  fail early with a clear ImportError
+        from .iq_input import fingerprint, verify_source, relocated_source
+        from .iq_export import export_channels, portable_report
         source_ok = True
         raw_required = bool(args.clips or args.channel_clips or args.analyze_signals or args.source)
         if cached and not raw_required:
@@ -566,12 +603,12 @@ def main(argv=None):
             if source_ok and source_state(meta['input']) != source_stat:
                 raise ValueError('Source changed during scanning; stop the recording and retry')
             if args.analyze_signals and source_ok:
-                from signal_analysis import analyze_events
+                from .signal_analysis import analyze_events
                 # Analysis is deliberately opt-in and bounded. The analyzer records
                 # unknown status when a cached redetect has no accessible raw input.
                 analyze_events(meta,events,max_samples=262144,duration_seconds=args.analysis_seconds)
             elif args.analyze_signals:
-                from signal_analysis import _empty
+                from .signal_analysis import _empty
                 for event in events:
                     event['signal_analysis'] = _empty([meta['source_warning']])
             describe(meta,events,catalog,args)
@@ -592,7 +629,8 @@ def main(argv=None):
             print('Times are relative to the scan interval; original source start: '+format_time(meta['scan_start_s']))
         if meta.get('rail_fraction',0) >= .001:
             print(f"WARNING: {100*meta['rail_fraction']:.2f}% of integer I/Q components hit digital rails.")
-        print(f'{format_time(meta["duration_s"])} | {meta["sample_rate"]:g} samples/s | {meta["format"]}')
+        from .iq_input import format_rate
+        print(f'{format_time(meta["duration_s"])} | {format_rate(meta["sample_rate"])} samples/s | {meta["format"]}')
         context=meta.get('spectrum_context',{})
         print('Band plan:',args.bandplan,'| frequency references only, not identification')
         for band in context.get('bands',[])[:8]:

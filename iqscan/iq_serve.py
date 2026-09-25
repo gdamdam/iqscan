@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-import iq_scan
+from . import iq_scan
 
 DETECT_ARGS = {'threshold': float, 'min_duration': float, 'dc_exclude': float, 'top': int}
 # Saved frequency limits have no slider but must survive preview and the generated command.
@@ -137,8 +137,7 @@ def detect_params(query, defaults, sample_rate=None):
 
 def command_for(scan_id, args, root):
     scan_path=(Path(root).expanduser().resolve()/scan_id).resolve()
-    module=Path(iq_scan.__file__).resolve()
-    parts = [sys.executable, str(module), '--redetect', str(scan_path)]
+    parts = [sys.executable, '-m', 'iqscan', '--redetect', str(scan_path)]
     for key in DETECT_ARGS:
         parts.extend((f"--{key.replace('_','-')}", f"{getattr(args, key):g}"))
     for key in BOUND_ARGS:
@@ -169,6 +168,10 @@ def handler_for(state, defaults, overrides=None):
         def do_GET(self):
             url = urlparse(self.path)
             query = parse_qs(url.query)
+            # A DNS-rebinding page could otherwise read scan names and local paths.
+            host = urlparse('//' + self.headers.get('Host', '')).hostname
+            if host not in ('127.0.0.1', 'localhost', '::1'):
+                return self.send_json(dict(error='Forbidden host header'), 403)
             try:
                 if url.path == '/':
                     return self.send(200, PAGE.encode(), 'text/html; charset=utf-8')

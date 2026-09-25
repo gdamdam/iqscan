@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-import iq_scan
-from signal_analysis import analyze_events
+from iqscan import iq_scan
+from iqscan.signal_analysis import analyze_events
 
 
 class SignalIntegrationTests(unittest.TestCase):

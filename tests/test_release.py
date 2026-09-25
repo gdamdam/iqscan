@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 import numpy as np
-import iq_scan
+from iqscan import iq_scan
 
 
 class ReleaseTests(unittest.TestCase):
@@ -28,16 +28,16 @@ class ReleaseTests(unittest.TestCase):
     def test_changed_source_and_relocation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=self.fixture(root);cache=root/'cache'
-            with patch('iq_scan.report'):
+            with patch('iqscan.iq_scan.report'):
                 self.assertEqual(self.run_scan([str(path),'--output',str(cache),'--save-spectrum','--clips','0','--fft-size','1024','--time-bin','.032']),0)
             relocated=root/'moved.cs16';shutil.copyfile(path,relocated)
             path.write_bytes(bytes(path.stat().st_size))
             self.assertEqual(self.run_scan(['--redetect',str(cache),'--source',str(path),'--output',str(root/'wrong-source')]),2)
-            with patch('iq_scan.report') as report:
+            with patch('iqscan.iq_scan.report') as report:
                 self.assertEqual(self.run_scan(['--redetect',str(cache),'--output',str(root/'changed'),'--analyze-signals']),0)
                 self.assertFalse((root/'changed'/'clips').exists())
                 self.assertEqual(report.call_args.args[2][0]['signal_analysis']['status'],'unknown')
-            with patch('iq_scan.report'):
+            with patch('iqscan.iq_scan.report'):
                 self.assertEqual(self.run_scan(['--redetect',str(cache),'--source',str(relocated),'--output',str(root/'relocated')]),0)
                 self.assertTrue(any((root/'relocated'/'clips').iterdir()))
 
@@ -81,7 +81,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_channel_export_cap_keeps_the_event(self):
         from argparse import Namespace
-        from iq_export import export_channels
+        from iqscan.iq_export import export_channels
         # Wide channel: no decimation, so the 262144-sample cap is ~0.52 s of source.
         fs=500_000
         meta=dict(sample_rate=fs,duration_s=3.0,samples=3*fs,center_frequency_hz=None)
@@ -91,8 +91,8 @@ class ReleaseTests(unittest.TestCase):
         def channelize(meta,first,count,center,bw,max_output_samples):
             calls.append((first,count))
             return np.zeros(4,complex),float(fs),[]
-        with tempfile.TemporaryDirectory() as tmp, patch('signal_analysis._stream_channelize',channelize), \
-                patch('iq_input.write_sigmf',return_value=Path(tmp)/'x.sigmf-meta'):
+        with tempfile.TemporaryDirectory() as tmp, patch('iqscan.signal_analysis._stream_channelize',channelize), \
+                patch('iqscan.iq_input.write_sigmf',return_value=Path(tmp)/'x.sigmf-meta'):
             export_channels(meta,args,[event],Path(tmp))
         first,count=calls[0]
         self.assertLessEqual(count,262144)
@@ -100,7 +100,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertGreaterEqual((first+count)/fs,event['end_s'])
 
     def test_baseband_zero_frequency_and_portable_nested_warnings(self):
-        from iq_export import portable_report
+        from iqscan.iq_export import portable_report
         args=iq_scan.parser().parse_args(['--reference-cache','/private/test-cache'])
         meta,args,events=portable_report(dict(input='/private/raw.cs8',spectrum_context={'warnings':['Cache failed: /private/test-cache/catalog.json']}),args,[])
         self.assertNotIn('/private/',json.dumps(meta))

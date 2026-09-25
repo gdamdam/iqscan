@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from iq_input import fingerprint, read_metadata, read_samples, relocated_source, verify_source, write_sigmf
+from iqscan.iq_input import fingerprint, read_metadata, read_samples, relocated_source, verify_source, write_sigmf
 
 
 class InputTests(unittest.TestCase):

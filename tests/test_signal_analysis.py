@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from signal_analysis import MAX_SAMPLES, analyze_events, analyze_samples
+from iqscan.signal_analysis import MAX_SAMPLES, analyze_events, analyze_samples
 
 
 class SignalAnalysisTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class SignalAnalysisTests(unittest.TestCase):
         self.assertTrue(result["signal_analysis"]["warnings"])
 
     def test_filtered_noise_and_analog_fm_do_not_invent_psk_or_baud(self):
-        from signal_analysis import _channelize
+        from iqscan.signal_analysis import _channelize
         n = 24000
         t = np.arange(n) / self.fs
         noise = np.random.default_rng(25).normal(size=n) + 1j*np.random.default_rng(29).normal(size=n)
@@ -112,7 +112,7 @@ class SignalAnalysisTests(unittest.TestCase):
             self.assertFalse({'PSK','BPSK','QPSK'} & {c['modulation'] for c in result['candidates']})
 
     def test_stream_filter_rejects_adjacent_tone_before_decimation(self):
-        from signal_analysis import _stream_channelize
+        from iqscan.signal_analysis import _stream_channelize
         fs = 2_400_000
         n = 240_000
         t = np.arange(n) / fs

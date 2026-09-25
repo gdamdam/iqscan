@@ -7,7 +7,7 @@ from urllib.request import urlopen
 from urllib.error import HTTPError
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import iq_scan, iq_serve
+from iqscan import iq_scan, iq_serve
 
 QUIET=['--bandplan','none','--known-signals','none','--clips','0']
 
@@ -43,7 +43,7 @@ class ServeTests(unittest.TestCase):
     def test_lists_only_directories_holding_a_cached_spectrum(self):
         listed=self.state.available()
         self.assertEqual([s['id'] for s in listed],['run-one'])
-        self.assertEqual(listed[0]['shaping'],{'fft_size':1024,'time_bin':.032,'max_rows':2000})
+        self.assertEqual(listed[0]['shaping'],{'fft_size':1024,'time_bin':.032,'max_rows':2000,'reference_band':[.22,.4]})
         status,body=self.get('/api/scans')
         self.assertEqual(status,200)
         self.assertEqual([s['id'] for s in json.loads(body)['scans']],['run-one'])
@@ -74,7 +74,7 @@ class ServeTests(unittest.TestCase):
         payload=json.loads(self.get('/api/detect?scan=run-one&threshold=9')[1])
         self.assertEqual(payload['events'],expected)
         self.assertIn('--redetect '+str(self.scan.resolve()),payload['command'])
-        self.assertIn(sys.executable+' '+str(Path(iq_scan.__file__).resolve()),payload['command'])
+        self.assertIn(sys.executable+' -m iqscan ',payload['command'])
         self.assertIn('--threshold 9',payload['command'])
         # Threshold reshapes regions, so the same burst comes back narrower.
         loose=json.loads(self.get('/api/detect?scan=run-one&threshold=7')[1])['events']
@@ -83,7 +83,7 @@ class ServeTests(unittest.TestCase):
         self.assertLess(strict[0]['bandwidth_hz'],loose[0]['bandwidth_hz'])
 
     def test_saved_frequency_limits_survive_preview_and_command(self):
-        with patch('iq_scan.cache_summary',return_value=({'detection_args':{'min_offset':5000.0,'max_offset':9000.0},
+        with patch('iqscan.iq_scan.cache_summary',return_value=({'detection_args':{'min_offset':5000.0,'max_offset':9000.0},
                                                           'sample_rate':32000},{})):
             saved=self.state.detection_defaults('run-one')
         self.assertEqual((saved['min_offset'],saved['max_offset']),(5000.0,9000.0))
@@ -122,7 +122,7 @@ class ServeTests(unittest.TestCase):
         args=iq_serve.detect_params({'min_duration':['0']},{k:getattr(iq_scan.parser().parse_args([]),k) for k in iq_serve.DETECT_ARGS},32000)
         scan_id='scan;$(touch pwned)'
         command=iq_serve.command_for(scan_id,args,Path('/tmp/custom scans'))
-        self.assertEqual(shlex.split(command)[3],str((Path('/tmp/custom scans').resolve()/scan_id).resolve()))
+        self.assertEqual(shlex.split(command)[4],str((Path('/tmp/custom scans').resolve()/scan_id).resolve()))
 
     def test_skips_truncated_and_invalid_caches(self):
         bad=self.scans/'truncated';bad.mkdir();(bad/'spectrum.npz').write_bytes(b'PK\x03\x04truncated')

@@ -1,8 +1,8 @@
 import struct,tempfile,unittest,warnings,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import iq_scan
-from iq_wav import read_header
+from iqscan import iq_scan
+from iqscan.iq_wav import read_header
 
 class WavTests(unittest.TestCase):
  def test_riff_rf64_payload_and_clips(self):

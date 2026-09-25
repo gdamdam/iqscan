@@ -2,7 +2,7 @@ import argparse,json,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import spectrum_refs as refs
+from iqscan import spectrum_refs as refs
 
 class ReferenceTests(unittest.TestCase):
     def args(self,*argv):
@@ -57,7 +57,7 @@ class ReferenceTests(unittest.TestCase):
             args=self.args('--reference-cache',tmp)
             path=Path(tmp)/'x.json'
             path.write_text(json.dumps(dict(source_url='https://example.com',downloaded_utc='yesterday',raw='[{"name":"cached"}]')))
-            with patch('spectrum_refs.urlopen',side_effect=OSError('network down')):
+            with patch('iqscan.spectrum_refs.urlopen',side_effect=OSError('network down')):
                 rows,info=refs.download('x','https://example.com',refs.read_json,args)
             self.assertEqual(rows[0]['name'],'cached')
             self.assertIn('Download failed',info['warning'])
@@ -68,7 +68,7 @@ class ReferenceTests(unittest.TestCase):
             args=self.args('--reference-cache',tmp)
             response=MagicMock();response.__enter__.return_value=response
             response.read.return_value=b'[{"name":"network"}]';response.headers.get.return_value=None
-            with patch('spectrum_refs.urlopen',return_value=response):
+            with patch('iqscan.spectrum_refs.urlopen',return_value=response):
                 rows,info=refs.download('fresh','https://example.com',refs.read_json,args)
             self.assertEqual(rows[0]['name'],'network')
             saved=json.loads((Path(tmp)/'fresh.json').read_text())
@@ -78,14 +78,14 @@ class ReferenceTests(unittest.TestCase):
     def test_offline_never_fetches_and_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             args=self.args('--reference-cache',tmp,'--offline-references')
-            with patch('spectrum_refs.urlopen',side_effect=AssertionError('network forbidden')):
+            with patch('iqscan.spectrum_refs.urlopen',side_effect=AssertionError('network forbidden')):
                 with self.assertRaisesRegex(ValueError,'no cached'):refs.download('x','https://example.com',refs.read_json,args)
                 path=Path(tmp)/'x.json'
                 path.write_text(json.dumps(dict(source_url='https://example.com',downloaded_utc='2020-01-01T00:00:00+00:00',raw='[{"name":"a"}]')))
                 rows,info=refs.download('x','https://example.com',refs.read_json,args)
                 self.assertEqual(rows[0]['name'],'a');self.assertIn('stale',info['warning'])
             args.offline_references=False
-            with patch('spectrum_refs.urlopen',side_effect=OSError('network down')):
+            with patch('iqscan.spectrum_refs.urlopen',side_effect=OSError('network down')):
                 rows,info=refs.download('x','https://example.com',refs.read_json,args)
                 self.assertIn('Download failed',info['warning'])
 

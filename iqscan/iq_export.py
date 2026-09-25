@@ -14,9 +14,9 @@ def export_channels(meta, args, events, out):
     if not args.channel_clips:
         return
     import numpy as np
-    from signal_analysis import (MAX_SAMPLES, _channel_plan, _stream_channelize,
+    from .signal_analysis import (MAX_SAMPLES, _channel_plan, _stream_channelize,
                                  fftconvolve, firwin)
-    from iq_input import write_sigmf
+    from .iq_input import format_rate, write_sigmf
     folder = out / 'channels'
     folder.mkdir()
     fs = meta['sample_rate']
@@ -38,7 +38,7 @@ def export_channels(meta, args, events, out):
         samples, rate, warnings = _stream_channelize(
             meta, first, count, event['center_offset_hz'],
             bandwidth, max_output_samples=MAX_OUTPUT)
-        name = f"event-{event['id']:02d}_{rate:g}SPS.cf32"
+        name = f"event-{event['id']:02d}_{format_rate(rate)}SPS.cf32"
         path = folder / name
         pairs = np.column_stack((samples.real, samples.imag)).astype('<f4')
         pairs.tofile(path)
@@ -59,7 +59,7 @@ def export_channels(meta, args, events, out):
                       'core:comment':provenance['processing']}
         sidecar = write_sigmf(path, rate, center, 'cf32_le', annotations=[annotation])
         event['channel_sigmf'] = 'channels/' + sidecar.name
-        path.with_suffix('.json').write_text(json.dumps(provenance, indent=2)+'\n')
+        path.with_suffix('.json').write_text(json.dumps(provenance, indent=2)+'\n', encoding='utf-8')
         event['channel_clip'] = f'channels/{name}'
         event['channel_metadata'] = provenance
 

@@ -66,7 +66,7 @@ def load_context(meta, args):
     except (OSError, KeyError, TypeError, ValueError, StopIteration) as exc:
         raise ValueError(f'Cannot load nextpass orbital elements for {args.satellite} from {elements_path}: {exc}') from exc
     if abs((start - epoch).total_seconds()) > 14 * 86400:
-        raise ValueError(f'Orbital elements are more than 14 days from the recording; refresh nextpass or pass --elements-file')
+        raise ValueError('Orbital elements are more than 14 days from the recording; refresh nextpass or pass --elements-file')
     ts = load.timescale(builtin=True)
     satellite = EarthSatellite.from_omm(ts, element)
     return dict(start=start, zone=zone, latitude=lat, longitude=lon,
@@ -294,9 +294,10 @@ def render(meta, args, context, out):
             if frame_number % 200 == 0:
                 print(f'{frame_number}/{len(frame_seconds)} frames', flush=True)
     finally:
+        # Always reap ffmpeg, including when a frame write raised on a broken pipe.
         if proc.stdin:
             proc.stdin.close()
-    rc = proc.wait()
+        rc = proc.wait()
     if rc:
         raise RuntimeError(f'ffmpeg exited with {rc}')
     print(f'Created {output} ({args.video_seconds:g}s) and {poster}')

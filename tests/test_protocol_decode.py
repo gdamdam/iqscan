@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 import numpy as np
-from protocol_decode import _fcs, decode_ax25_afsk
+from iqscan.protocol_decode import _fcs, decode_ax25_afsk
 
 
 def packet_iq(bad_crc=False, fs=48000, carrier=730, seed=9):
@@ -54,7 +54,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertIsNone(decode_ax25_afsk(z, 48000))
 
     def test_event_analysis_confirms_valid_packet_without_frequency_catalog(self):
-        from signal_analysis import analyze_events
+        from iqscan.signal_analysis import analyze_events
         fs = 48000
         for corrupt in (False, True):
             with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
@@ -73,7 +73,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_high_rate_packet_survives_streaming_decimation(self):
         from scipy.signal import resample_poly
-        from signal_analysis import MAX_SAMPLES, analyze_events
+        from iqscan.signal_analysis import MAX_SAMPLES, analyze_events
         fs = 2_400_000
         base = packet_iq(carrier=730)
         z = resample_poly(base, 50, 1)
@@ -96,8 +96,8 @@ class ProtocolTests(unittest.TestCase):
             self.assertLessEqual(window['n_samples'], MAX_SAMPLES)
 
     def test_detected_packet_burst_is_decoded_despite_off_air_envelope(self):
-        import iq_scan
-        from signal_analysis import analyze_events
+        from iqscan import iq_scan
+        from iqscan.signal_analysis import analyze_events
         fs = 48000
         rng = np.random.default_rng(14)
         z = .003 * (rng.normal(size=fs*2) + 1j*rng.normal(size=fs*2))

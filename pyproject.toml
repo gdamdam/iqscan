@@ -21,26 +21,23 @@ test = ["playwright>=1.48,<2"]
 video = ["Pillow>=10,<13", "skyfield>=1.50,<2"]
 
 [project.scripts]
-iqscan = "iq_scan:main"
+iqscan = "iqscan.iq_scan:main"
 
 [tool.setuptools]
-py-modules = [
-  "iq_scan",
-  "iq_serve",
-  "iq_wav",
-  "iq_input",
-  "iq_export",
-  "report_interactive",
-  "signal_analysis",
-  "protocol_decode",
-  "spectrum_refs",
-  "meteor_extract",
-  "meteor_video",
-]
+packages = ["iqscan"]
 
 [tool.setuptools.dynamic]
-version = {attr = "iq_scan.__version__"}
+version = {attr = "iqscan.iq_scan.__version__"}
 
 [project.urls]
 Homepage = "https://github.com/gdamdam/iqscan"
 Issues = "https://github.com/gdamdam/iqscan/issues"
+
+[tool.ruff]
+line-length = 200
+extend-exclude = ["build"]
+
+[tool.ruff.lint]
+# Short statements and imports are deliberately joined on one line in this codebase;
+# keep pyflakes on and treat that layout as a style choice rather than an error.
+ignore = ["E401", "E701", "E702", "E731"]

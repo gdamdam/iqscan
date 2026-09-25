@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from iq_wav import read_header
+from .iq_wav import read_header
 
 
 _FORMATS = {
@@ -29,6 +29,7 @@ _SIGMF_TYPES = {
 }
 _FORMAT_TO_SIGMF = {value: key for key, value in _SIGMF_TYPES.items()}
 _HASH_CHUNK = 1024 * 1024
+_SAMPLE_BLOCKS = 16
 
 
 def _positive_finite(value, label):
@@ -55,9 +56,19 @@ def _finite_number(value, label):
     return number
 
 
+_MULTIPLIERS = {"": 1.0, "k": 1e3, "m": 1e6, "g": 1e9}
+
+
 def _filename_number(name, suffix):
-    match = re.search(r"(\d+(?:\.\d+)?)" + suffix, name, re.I)
-    return float(match[1]) if match else None
+    """Read e.g. 137900000Hz, 137900kHz, 2.4MSPS; SI prefixes are case-insensitive."""
+    match = re.search(r"(\d+(?:\.\d+)?)([kmg]?)" + suffix, name, re.I)
+    return float(match[1]) * _MULTIPLIERS[match[2].lower()] if match else None
+
+
+def format_rate(rate):
+    """Plain decimal sample rate for filenames and text; never exponent notation."""
+    rate = float(rate)
+    return str(int(rate)) if rate.is_integer() else f"{rate:.3f}".rstrip("0").rstrip(".")
 
 
 def _sigmf_paths(path):
@@ -165,11 +176,11 @@ def read_metadata(path, format=None, sample_rate=None, center_frequency=None, iq
             signature = handle.read(12)
         if path.suffix.lower() == ".wav" or (signature[:4] in (b"RIFF", b"RF64") and signature[8:] == b"WAVE"):
             wav = read_header(path)
-            fmt = "cs16"
+            fmt = wav["format"]
             if format is not None and format != fmt:
                 raise ValueError("--format conflicts with WAV payload")
             container, offset, warning = wav["container"], wav["data_offset"], wav.get("warning")
-            header_rate, header_center = wav["sample_rate"], None
+            header_rate, header_center = wav["sample_rate"], wav.get("center_frequency")
         else:
             fmt = format or path.suffix.lower().lstrip(".")
             if fmt == "cf32":
@@ -253,8 +264,8 @@ def read_samples(meta, first, count):
     return pairs[:, 0] + 1j * pairs[:, 1]
 
 
-def fingerprint(meta):
-    """Hash the selected IQ payload and record its exact interpretation/layout."""
+def fingerprint(meta, full=False):
+    """Hash the selected IQ payload (sampled unless ``full``) and record its layout."""
     fmt = meta["format"]
     if fmt not in _FORMATS or meta.get("iq_order", "IQ") not in ("IQ", "QI"):
         raise ValueError("Unsupported IQ format or component order")
@@ -269,14 +280,15 @@ def fingerprint(meta):
         raise ValueError("IQ payload is truncated")
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        handle.seek(offset)
-        remaining = size
-        while remaining:
-            chunk = handle.read(min(remaining, _HASH_CHUNK))
-            if not chunk:
-                raise ValueError("IQ payload is truncated")
-            digest.update(chunk)
-            remaining -= len(chunk)
+        for block_offset, block_size in _sample_blocks(offset, size, full):
+            handle.seek(block_offset)
+            remaining = block_size
+            while remaining:
+                chunk = handle.read(min(remaining, _HASH_CHUNK))
+                if not chunk:
+                    raise ValueError("IQ payload is truncated")
+                digest.update(chunk)
+                remaining -= len(chunk)
     layout = {key: meta.get(key) for key in ("format", "sample_rate", "center_frequency_hz",
                                                 "iq_order", "container", "data_offset",
                                                 "bytes_per_complex", "bytes", "samples")}
@@ -293,7 +305,20 @@ def fingerprint(meta):
                 header_digest.update(chunk)
                 remaining -= len(chunk)
         layout["header_sha256"] = header_digest.hexdigest()
-    return {**layout, "sha256": digest.hexdigest()}
+    return {**layout, ("sha256" if full else "sampled_sha256"): digest.hexdigest()}
+
+
+def _sample_blocks(offset, size, full):
+    """Whole payload, or 16 evenly spaced 1 MiB blocks (first and last included).
+
+    A full hash costs a second read of the recording before any FFT runs; the
+    sampled hash still catches truncation, overwrite and relocation to a
+    different file, which is what the cache check exists for.
+    """
+    if full or size <= _SAMPLE_BLOCKS * _HASH_CHUNK:
+        return [(offset, size)]
+    step = (size - _HASH_CHUNK) / (_SAMPLE_BLOCKS - 1)
+    return [(offset + round(i * step), _HASH_CHUNK) for i in range(_SAMPLE_BLOCKS)]
 
 
 def relocated_source(meta, path):
@@ -369,6 +394,7 @@ def verify_source(meta, path=None):
                 return False
         if candidate["data_offset"] < actual["data_offset"] or candidate["data_offset"] + candidate["bytes"] > actual["data_offset"] + actual["bytes"]:
             return False
-        return fingerprint(candidate) == expected
+        # Schema-2 caches written before 1.5.0 hold a full-payload hash; honour it.
+        return fingerprint(candidate, full="sha256" in expected) == expected
     except (OSError, ValueError, TypeError, KeyError):
         return False
