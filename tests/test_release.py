@@ -101,9 +101,11 @@ class ReleaseTests(unittest.TestCase):
 
     def test_baseband_zero_frequency_and_portable_nested_warnings(self):
         from iqscan.iq_export import portable_report
-        args=iq_scan.parser().parse_args(['--reference-cache','/private/test-cache'])
-        meta,args,events=portable_report(dict(input='/private/raw.cs8',spectrum_context={'warnings':['Cache failed: /private/test-cache/catalog.json']}),args,[])
-        self.assertNotIn('/private/',json.dumps(meta))
+        private=Path(tempfile.gettempdir()).resolve()/'private';cache=private/'test-cache'   # absolute on every platform
+        args=iq_scan.parser().parse_args(['--reference-cache',str(cache)])
+        meta,args,events=portable_report(dict(input=str(private/'raw.cs8'),spectrum_context={'warnings':[f'Cache failed: {cache}/catalog.json']}),args,[])
+        self.assertEqual(meta['input'],'raw.cs8')
+        self.assertEqual(meta['spectrum_context']['warnings'],['Cache failed: test-cache/catalog.json'])
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=self.fixture(root);out=root/'baseband'
             self.assertEqual(self.run_scan([str(path),'--center-frequency','0','--output',str(out),'--fft-size','1024','--time-bin','.032']),0)

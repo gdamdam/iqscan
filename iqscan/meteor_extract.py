@@ -122,11 +122,11 @@ def products(work, image_dir):
         if destination.exists():
             raise ValueError(f'Duplicate image channel: {destination.name}')
         shutil.copy2(source, destination)
-        images.append(str(destination.relative_to(image_dir.parent)))
+        images.append(destination.relative_to(image_dir.parent).as_posix())   # manifest links stay portable
     data = []
     for source in sorted(work.rglob('*')):
         if source.is_file() and source.suffix.lower() in ('.json', '.cbor', '.cadu'):
-            data.append({'path': str(source.relative_to(image_dir.parent)), 'bytes': source.stat().st_size})
+            data.append({'path': source.relative_to(image_dir.parent).as_posix(), 'bytes': source.stat().st_size})
     return images, data
 
 
@@ -186,8 +186,8 @@ def main(argv=None):
                     raise ValueError('Video dependencies missing; install Pillow and Skyfield (pip install iqscan[video])') from exc
                 video_context = load_context(meta, args)
                 video_path, poster_path = render(meta, args, video_context, out)
-                manifest['video'] = str(video_path.relative_to(out))
-                manifest['video_poster'] = str(poster_path.relative_to(out))
+                manifest['video'] = video_path.relative_to(out).as_posix()
+                manifest['video_poster'] = poster_path.relative_to(out).as_posix()
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 video_ok = False
                 manifest['video_error'] = str(exc)
