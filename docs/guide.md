@@ -23,8 +23,9 @@ cd iqscan
 ./scan.sh /path/to/recording_500000SPS_137900000Hz.cs8
 ```
 
-That's the whole setup. The launcher creates `.venv` and installs NumPy, SciPy and
-Matplotlib on first use, then prints the report path and an `open …/report.html` command.
+That's the whole setup. The launcher creates `.venv` and installs the `iqscan` package
+(NumPy, SciPy and Matplotlib) on first use, then prints the report path and an
+`open …/report.html` command. Inside the checkout you can also run `python -m iqscan`.
 
 Filename doesn't carry its metadata? Say so explicitly:
 
@@ -58,13 +59,14 @@ on first use. Installed commands use the Python environment that installed `iqsc
 | `.cu8` | unsigned interleaved I/Q, 8-bit (centered around 127.5) |
 | `.cf32`, `.cf32_le`, `.cf32_be` | interleaved I/Q, 32-bit float; `.cf32` means little-endian |
 | `.sigmf-meta` / `.sigmf-data` | SigMF single-capture complex IQ with supported datatype and sample-rate metadata |
-| IQ `.wav` | SDRconnect two-channel PCM16 (RIFF/RF64) — I is ch 1, Q is ch 2 |
+| IQ `.wav` | two-channel 8/16-bit PCM or 32-bit float (RIFF/RF64, incl. WAVE_FORMAT_EXTENSIBLE) — I is ch 1, Q is ch 2; SDRconnect, SDR#, HDSDR, SDR++ |
 
 Raw inputs default to I then Q component order; use `--iq-order QI` for a reversed
 interleave. `--format` can supply or override a raw extension. Sample rate and center
 frequency are parsed from `NNNSPS` and `NNNHz` in SatDump-style filenames when the
-format has no header. SigMF and IQ WAV headers supply their own sample rate; conflicting
-command-line metadata is rejected. This release supports one SigMF capture starting at
+format has no header; `k`, `M` and `G` prefixes work too (`137900kHz`, `2.4MSPS`). SigMF
+and IQ WAV headers supply their own sample rate, and a WAV `auxi` chunk (SDR#, HDSDR)
+supplies the center frequency; conflicting command-line metadata is rejected. This release supports one SigMF capture starting at
 sample zero; multiple captures and unsupported datatypes are rejected. Non-finite float
 samples and incomplete complex samples are rejected. **The input is opened read-only and
 never modified.** For IQ WAV, oversized data-length fields warn and only complete samples
@@ -125,9 +127,10 @@ filename, SigMF metadata, or `--sample-rate`/`--center-frequency`.
   --satellite M2-4 --frequency 137900000 --video
 ```
 
-The command detects SatDump 1.x stable versus 2.x CLI syntax automatically;
-`--satdump PATH` selects another installation and `--satdump-cli stable|v2`
-overrides version detection if needed. `--satellite M2-3` selects the other supported decoder setting. Choose
+The command finds SatDump via `--satdump PATH`, the `SATDUMP` environment variable,
+`PATH`, or the standard `/Applications` and `~/Applications` app bundles, and detects
+1.x stable versus 2.x CLI syntax from the reported version; `--satdump-cli stable|v2`
+overrides that detection if needed. `--satellite M2-3` selects the other supported decoder setting. Choose
 `--frequency 137100000` only if the waterfall shows that downlink in the saved
 band. The selected frequency must lie inside the IQ capture. `--dry-run` prints
 the SatDump command without writing output. `--output DIR` chooses a new result
@@ -253,16 +256,18 @@ Source verification for clips and decoding adds I/O proportional to recording le
 Each redetect writes its own scan directory and records `redetected_from` in
 `events.json`. Detection parameters — `--threshold`, `--min-duration`, `--top`,
 `--dc-exclude`, `--min-offset` and `--max-offset` — are all fair game. The FFT-shaping
-options (`--fft-size`, `--time-bin`, `--max-rows`) are baked into the cache, so they
-come from the original scan and a conflicting command line is reported and ignored.
+options (`--fft-size`, `--time-bin`, `--max-rows`, `--reference-band`) are baked into the
+cache, so they come from the original scan and a conflicting command line is reported and
+ignored.
 
 New caches record a source fingerprint and cache schema version 2. To use raw samples
 for exact clips, channel clips or waveform analysis on redetection, the source must
 match that fingerprint. Use `--source /new/path/to/recording.cs8` with `--redetect`
 after moving the file; changed bytes or interpretation are refused for raw operations.
 Old caches without a fingerprint still support cached detection but skip raw operations
-with a warning. Fingerprint verification reads the selected source payload, so a run
-that needs clips or decoding may take longer than a matrix-only redetect.
+with a warning. The fingerprint hashes 16 evenly spaced 1 MiB blocks of the payload (the
+whole payload when it is 16 MiB or smaller), so verification is quick even for
+multi-gigabyte recordings; caches from before 1.5.0 keep their full-payload hash.
 
 ### Retune it live in a browser
 

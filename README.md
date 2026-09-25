@@ -45,7 +45,8 @@ The launcher creates `.venv` and installs dependencies on first use. It saves a
 report under `scans/` and opens it in your browser. Your recording is never modified.
 
 **Use the saved sample rate after decimation.** Metadata can also come from a
-SigMF/WAV header or a filename such as `capture_500000SPS_137900000Hz.cs8`.
+SigMF/WAV header (including the SDR#/HDSDR `auxi` center frequency) or a filename such as
+`capture_500000SPS_137900000Hz.cs8` or `HDSDR_137900kHz_RF.wav`.
 
 ---
 
@@ -75,6 +76,7 @@ Add these options to your scan command:
 |---|---|
 | Inspect possible modulation and supported protocols | `--analyze-signals` |
 | Scan only part of a recording | `--start 30 --duration 15` |
+| Keep a wideband signal out of the level reference | `--reference-band 0.05 0.15` |
 | Export filtered, centered channels | `--channel-clips 3` |
 | Add satellite frequency hints | `--sat` |
 | Remove generated absolute paths for sharing | `--portable --clips 0` |
