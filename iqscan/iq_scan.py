@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Find candidate activity in signed complex IQ recordings with optional protocol evidence."""
-__version__ = '1.6.1'
+__version__ = '1.6.2'
 import argparse, csv, html, json, math, os, sys, tempfile, zipfile
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +47,9 @@ def parser():
     p.add_argument('--open',action='store_true',help='Open the completed HTML report in your default browser')
     p.add_argument('--output',type=Path,help='New output directory; existing directories are never overwritten')
     p.add_argument('--fft-size',type=int,default=4096,help='Power of two, 256..16384')
+    from .waterfall import WATERFALL_STYLES
+    p.add_argument('--waterfall-style',choices=WATERFALL_STYLES,default=None,
+                   help='Waterfall colors; defaults to magma and is saved with the scan')
     p.add_argument('--time-bin',type=positive,default=.1,help='Requested time resolution in seconds')
     p.add_argument('--max-rows',type=int,default=2000,help='Bound analysis memory; long files get coarser time bins')
     p.add_argument('--reference-band',type=nonnegative,nargs=2,default=[.22,.4],metavar=('LO','HI'),help='Per-time level reference: |offset| between these fractions of the sample rate; keep signals of interest outside it')
@@ -151,6 +154,10 @@ def spectrum(meta,args):
     import numpy as np
     from .iq_input import read_samples
     n=args.fft_size; fs=meta['sample_rate']; frames=math.ceil(meta['samples']/n)
+    f=np.fft.fftshift(np.fft.fftfreq(n,1/fs))
+    reference_mask=(abs(f)>args.reference_band[0]*fs)&(abs(f)<args.reference_band[1]*fs)
+    if not np.any(reference_mask):
+        raise ValueError('--reference-band contains no FFT bins; widen the band or use a larger --fft-size')
     navg=max(1,round(args.time_bin*fs/n),math.ceil(frames/args.max_rows))
     rows=math.ceil(frames/navg); w=np.hanning(n)
     scale = {'cs8':128, 'cu8':128, 'cs16':32768}.get(meta['format'])
@@ -170,10 +177,9 @@ def spectrum(meta,args):
         ps[row]/=count*fs*np.sum(w*w)
         if row%max(1,rows//10)==0: print(f'\rScanning {100*(row+1)/rows:3.0f}%',end='',file=sys.stderr,flush=True)
     print('\rScanning 100%',file=sys.stderr)
-    ps=np.fft.fftshift(ps,axes=1); f=np.fft.fftshift(np.fft.fftfreq(n,1/fs)); dt=navg*n/fs
+    ps=np.fft.fftshift(ps,axes=1); dt=navg*n/fs
     db=10*np.log10(np.maximum(ps,1e-30))
-    lo,hi=args.reference_band
-    reference=np.median(db[:,(abs(f)>lo*fs)&(abs(f)<hi*fs)],axis=1)
+    reference=np.median(db[:,reference_mask],axis=1)
     norm=db-reference[:,None]
     meta.update(time_bin_s=dt,frequency_bin_hz=fs/n,rail_fraction=rail/total,rows=rows,reference_band=list(args.reference_band),
                 analysis_note='All samples processed; final FFT zero padded if incomplete. PSD levels are relative digital units, not calibrated RF power.')
@@ -219,6 +225,10 @@ def validate_cache_metadata(meta, shaping, dt):
     bpc = {'cs8':2, 'cu8':2, 'cs16':4, 'cf32_le':8, 'cf32_be':8}[meta['format']]
     if meta.get('iq_order', 'IQ') not in ('IQ','QI'):
         raise ValueError('Invalid cached I/Q order')
+    if 'waterfall_style' in meta:
+        from .waterfall import WATERFALL_STYLES
+        if meta['waterfall_style'] not in WATERFALL_STYLES:
+            raise ValueError('Invalid cached waterfall style')
     if meta.get('cache_schema_version', 1) not in (1,2):
         raise ValueError('Unsupported spectrum cache schema')
     if not math.isfinite(meta.get('scan_start_s',0)) or meta.get('scan_start_s',0) < 0:
@@ -420,6 +430,8 @@ def report(meta,args,events,f,norm,reference,dt,out):
     from .spectrum_refs import html_context, plot_context, brief
     from .report_interactive import panel, inject
     from .iq_input import format_rate
+    from .waterfall import waterfall_cmap
+    cmap=waterfall_cmap(getattr(args,'waterfall_style',None) or 'magma')
     plots={}
     context_panel=plot_context(meta,out)
     if context_panel:plots["spectrum-context.png"]=[context_panel]
@@ -427,7 +439,7 @@ def report(meta,args,events,f,norm,reference,dt,out):
     center=meta['center_frequency_hz'];freq=(f+(center or 0))/(1e6 if center is not None else 1e3)
     unit='Frequency (MHz)' if center is not None else 'Offset (kHz)'
     fig,(ax,bx)=plt.subplots(2,1,figsize=(13,9),layout='constrained',gridspec_kw={'height_ratios':[4,1]})
-    im=ax.imshow(norm,extent=(freq[0],freq[-1],len(norm)*dt,0),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(norm,99.5))))
+    im=ax.imshow(norm,extent=(freq[0],freq[-1],len(norm)*dt,0),aspect='auto',cmap=cmap,vmin=-3,vmax=max(12,float(np.percentile(norm,99.5))))
     ax.set_ylim(meta['duration_s'],0)
     ax.set(xlabel=unit,ylabel='Elapsed time (hh:mm:ss.mmm)',title='Candidate activity — broadband level changes removed')
     ax.yaxis.set_major_formatter(time_ticks)
@@ -453,7 +465,7 @@ def report(meta,args,events,f,norm,reference,dt,out):
         if ib<=ia or not fi.any():continue
         fig,ax=plt.subplots(figsize=(9,5),layout='constrained')
         section=norm[ia:ib][:,fi]
-        im=ax.imshow(section,extent=(freq[fi][0],freq[fi][-1],ib*dt,ia*dt),aspect='auto',cmap='magma',vmin=-3,vmax=max(12,float(np.percentile(section,99.5))))
+        im=ax.imshow(section,extent=(freq[fi][0],freq[fi][-1],ib*dt,ia*dt),aspect='auto',cmap=cmap,vmin=-3,vmax=max(12,float(np.percentile(section,99.5))))
         ax.set_ylim(min(ib*dt,meta['duration_s']),ia*dt)
         ax.set(xlabel=unit,ylabel='Elapsed time in scanned interval (hh:mm:ss.mmm)',title=f"Event {e['id']} | {e['kind']} | unidentified activity")
         ax.yaxis.set_major_formatter(time_ticks)
@@ -547,12 +559,15 @@ def main(argv=None):
             return 2 if catalog['warnings'] else 0
         if args.serve is not None:
             from . import iq_serve
-            return iq_serve.serve(args.scan_root or Path.cwd()/'scans',args.serve,open_browser=args.open, overrides={k:getattr(args,k) for k in iq_serve.DETECT_ARGS if any(token == '--'+k.replace('_','-') or token.startswith('--'+k.replace('_','-')+'=') for token in (argv if argv is not None else sys.argv[1:]))})
+            return iq_serve.serve(args.scan_root or Path.cwd()/'scans',args.serve,open_browser=args.open, overrides={k:getattr(args,k) for k in iq_serve.DETECT_ARGS if any(token == '--'+k.replace('_','-') or token.startswith('--'+k.replace('_','-')+'=') for token in argv)}, waterfall_style=args.waterfall_style if any(token == '--waterfall-style' or token.startswith('--waterfall-style=') for token in argv) else None)
         if args.file is None and args.redetect is None: raise ValueError('Provide an IQ recording, --redetect DIR, or --update-references')
         if args.file and args.redetect:
             raise ValueError('Use --source to relocate a recording with --redetect')
         cached=load_spectrum(args.redetect) if args.redetect is not None else None
         meta=cached[0] if cached else metadata(args)
+        if args.waterfall_style is None:
+            args.waterfall_style=(meta.get('waterfall_style') if cached else None) or 'magma'
+        meta['waterfall_style']=args.waterfall_style
         if cached:
             for key in SPECTRUM_ARGS:
                 setattr(args,key,cached[5].get(key,LEGACY_SHAPING.get(key)))

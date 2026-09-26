@@ -38,6 +38,8 @@ def parser():
     p.add_argument('--satdump-cli', choices=('auto', 'stable', 'v2'), default='auto',
                    help='Select stable 1.x or 2.x CLI syntax; auto probes --help')
     p.add_argument('--video', action='store_true', help='Also render synchronized waterfall, spectrum, and predicted sky track')
+    p.add_argument('--waterfall-style', choices=('default', 'magma', 'youssef'), default='default',
+                   help='Video waterfall colors; default preserves the existing Meteor palette')
     p.add_argument('--video-seconds', type=float, default=60, help='Length of compressed video in seconds')
     p.add_argument('--location-config', type=Path,
                    help='nextpass location.json; otherwise RADIO_LOCATION_CONFIG or ~/.config/radio/location.json')
@@ -173,6 +175,7 @@ def main(argv=None):
             'recording': meta['input'], 'recording_format': meta['format'],
             'sample_rate': meta['sample_rate'], 'center_frequency_hz': meta['center_frequency_hz'],
             'duration_s': meta['duration_s'], 'satellite': args.satellite,
+            'waterfall_style': args.waterfall_style,
             'signal_frequency_hz': args.frequency, 'satdump_exit_code': completed.returncode,
             'decoder_command': command, 'decoder_log': 'satdump.log',
             'images': images, 'data_products': data, 'data_summary': data_summary(work),

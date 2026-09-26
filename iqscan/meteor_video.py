@@ -138,7 +138,15 @@ def xy_sky(alt: float, az: float) -> tuple[float, float]:
     return SKY_CX + radius * math.sin(a), SKY_CY - radius * math.cos(a)
 
 
-def colorize(db: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+def colorize(db: np.ndarray, vmin: float, vmax: float, style='default') -> np.ndarray:
+    if style != 'default':
+        import matplotlib
+        from .waterfall import waterfall_cmap
+        cmap = waterfall_cmap(style)
+        if isinstance(cmap, str):
+            cmap = matplotlib.colormaps[cmap]
+        u = np.clip((db - vmin) / (vmax - vmin), 0, 1)
+        return (cmap(u)[..., :3] * 255).astype(np.uint8)
     colors = np.array([
         [2, 4, 21], [5, 17, 83], [9, 50, 153], [17, 100, 217],
         [44, 170, 250], [145, 235, 255], [250, 252, 247],
@@ -223,7 +231,7 @@ def render(meta, args, context, out):
     freq, db, duration = spectrum_data(meta, args.frequency)
     baseline = float(np.median(db))
     vmin, vmax = baseline - 2.5, baseline + 17.5
-    rgb = colorize(db, vmin, vmax)
+    rgb = colorize(db, vmin, vmax, getattr(args, 'waterfall_style', 'default'))
     whole = Image.fromarray(rgb, 'RGB')
     track_seconds = np.linspace(0, duration + 60, 500)
     track_alt, track_az = altaz_seconds(context, track_seconds)

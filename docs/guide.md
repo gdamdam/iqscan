@@ -157,6 +157,10 @@ observer file or elements JSON, pass `--location-config` or `--elements-file`.
 Video needs `ffmpeg` plus Pillow and Skyfield (`pip install 'iqscan[video]'`);
 `scan.sh` installs the Python video dependencies when requested.
 
+For its video waterfall, `--waterfall-style magma` and
+`--waterfall-style youssef` select these palettes. The default value
+`default` keeps the existing Meteor video palette.
+
 The displayed track is orbital prediction, not evidence of a decoded lock or
 measured antenna pointing. The waterfall color scale shows relative power, not
 calibrated dBm.
@@ -213,6 +217,18 @@ available.
 Reference catalogs remain separate context. Band plans and optional SatNOGS entries
 are frequency overlap hints and cannot promote a frequency match into an observed
 signal or protocol identification.
+
+### Change waterfall colors
+
+Use `--waterfall-style magma` or `--waterfall-style youssef` to choose the
+report and event-image colors. `youssef` reproduces SatDump's Classic palette,
+whose source credits Youssef Touil. The chosen style is saved in spectrum
+metadata and inherited by `--redetect`; an explicit style overrides it. Older
+caches use `magma`. The live explorer has a palette selector as well.
+The palette values and interpolation follow SatDump's [Classic palette
+definition](https://github.com/SatDump/SatDump/blob/master/resources/waterfall/classic.json)
+and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src-core/common/colormaps.cpp),
+used by its [waterfall widget](https://github.com/SatDump/SatDump/blob/master/src-core/common/widgets/waterfall_plot.cpp).
 
 ### Scan an interval or a frequency range
 

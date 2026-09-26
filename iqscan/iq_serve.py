@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from . import iq_scan
+from .waterfall import DEFAULT_WATERFALL_STYLE, WATERFALL_STYLES, waterfall_cmap
 
 DETECT_ARGS = {'threshold': float, 'min_duration': float, 'dc_exclude': float, 'top': int}
 # Saved frequency limits have no slider but must survive preview and the generated command.
@@ -48,6 +49,7 @@ class Spectra:
             found.append(dict(id=directory.name, name=Path(meta['input']).name, duration_s=meta['duration_s'],
                 sample_rate=meta['sample_rate'], center_frequency_hz=meta['center_frequency_hz'],
                 rows=meta.get('rows'), frequency_bin_hz=meta['frequency_bin_hz'], shaping=shaping,
+                waterfall_style=meta.get('waterfall_style') or DEFAULT_WATERFALL_STYLE,
                 detection_args=self.detection_defaults(directory.name)))
         return found
 
@@ -94,17 +96,21 @@ class Spectra:
                 self.loaded[scan_id] = iq_scan.load_spectrum(self.resolve(scan_id))
             return self.loaded[scan_id]
 
-    def image(self, scan_id):
+    def image(self, scan_id, style=None):
         with self.lock:
-            if scan_id not in self.images:
-                meta, _f, norm, _reference, dt, _shaping = self.get(scan_id)
-                self.images[scan_id] = waterfall_png(norm, meta['duration_s'], dt)
+            meta, _f, norm, _reference, dt, _shaping = self.get(scan_id)
+            style = style or meta.get('waterfall_style') or DEFAULT_WATERFALL_STYLE
+            if style not in WATERFALL_STYLES:
+                raise ValueError('Unknown waterfall style')
+            key = (scan_id, style)
+            if key not in self.images:
+                self.images[key] = waterfall_png(norm, meta['duration_s'], dt, style)
                 if len(self.images) > self.keep:
                     self.images.pop(next(iter(self.images)))
-            return self.images[scan_id]
+            return self.images[key]
 
 
-def waterfall_png(norm, duration_s=None, dt=None):
+def waterfall_png(norm, duration_s=None, dt=None, style=DEFAULT_WATERFALL_STYLE):
     """Bare data pixels, no axes or padding, so the browser can map events linearly."""
     import numpy as np
     import matplotlib
@@ -116,7 +122,7 @@ def waterfall_png(norm, duration_s=None, dt=None):
     axes = figure.add_axes([0, 0, 1, 1])
     axes.set_axis_off()
     extent=(0,cols,rows*dt if dt is not None else rows,0)
-    axes.imshow(norm, extent=extent, aspect='auto', cmap='magma', vmin=-3, vmax=max(12, float(np.percentile(norm, 99.5))))
+    axes.imshow(norm, extent=extent, aspect='auto', cmap=waterfall_cmap(style), vmin=-3, vmax=max(12, float(np.percentile(norm, 99.5))))
     if duration_s is not None: axes.set_ylim(duration_s,0)
     buffer = io.BytesIO()
     figure.savefig(buffer, format='png', dpi=100)
@@ -137,7 +143,7 @@ def detect_params(query, defaults, sample_rate=None):
     return args
 
 
-def command_for(scan_id, args, root):
+def command_for(scan_id, args, root, waterfall_style=DEFAULT_WATERFALL_STYLE):
     scan_path=(Path(root).expanduser().resolve()/scan_id).resolve()
     parts = [sys.executable, '-m', 'iqscan', '--redetect', str(scan_path)]
     for key in DETECT_ARGS:
@@ -146,10 +152,11 @@ def command_for(scan_id, args, root):
         value = getattr(args, key, None)
         if value is not None:
             parts.extend((f"--{key.replace('_','-')}", f"{value:.12g}"))
+    parts.extend(('--waterfall-style', waterfall_style))
     return subprocess.list2cmdline(parts) if os.name == 'nt' else shlex.join(parts)
 
 
-def handler_for(state, defaults, overrides=None):
+def handler_for(state, defaults, overrides=None, waterfall_style=None):
     overrides = dict(overrides or {})
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -178,19 +185,25 @@ def handler_for(state, defaults, overrides=None):
                 if url.path == '/':
                     return self.send(200, PAGE.encode(), 'text/html; charset=utf-8')
                 if url.path == '/api/scans':
-                    return self.send_json(dict(scans=state.available(), defaults=defaults, overrides=overrides))
+                    return self.send_json(dict(scans=state.available(), defaults=defaults, overrides=overrides,
+                        waterfall_style=waterfall_style))
                 scan_id = query.get('scan', [''])[0]
                 if url.path == '/api/image':
-                    return self.send(200, state.image(scan_id), 'image/png')
+                    meta = state.get(scan_id)[0]
+                    style = query.get('style', [waterfall_style or meta.get('waterfall_style') or DEFAULT_WATERFALL_STYLE])[0]
+                    return self.send(200, state.image(scan_id, style), 'image/png')
                 if url.path == '/api/detect':
                     meta, f, norm, _reference, dt, shaping = state.get(scan_id)
+                    style = query.get('style', [waterfall_style or meta.get('waterfall_style') or DEFAULT_WATERFALL_STYLE])[0]
+                    if style not in WATERFALL_STYLES:
+                        raise ValueError('Unknown waterfall style')
                     base_defaults = dict(defaults)
                     base_defaults.update(state.detection_defaults(scan_id))
                     base_defaults.update(overrides)
                     args = detect_params(query, base_defaults, meta['sample_rate'])
                     events = iq_scan.detect(dict(meta), args, f, norm, dt)
                     return self.send_json(dict(events=events, shaping=shaping,
-                        command=command_for(scan_id, args, state.root),
+                        command=command_for(scan_id, args, state.root, style),
                         extent=dict(low_offset_hz=float(f[0]), high_offset_hz=float(f[-1]),
                             duration_s=meta['duration_s'], center_frequency_hz=meta['center_frequency_hz'],
                             sample_rate=meta['sample_rate'])))
@@ -202,7 +215,7 @@ def handler_for(state, defaults, overrides=None):
     return Handler
 
 
-def serve(root, port=8731, open_browser=True, defaults=None, overrides=None):
+def serve(root, port=8731, open_browser=True, defaults=None, overrides=None, waterfall_style=None):
     root = Path(root).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f'No scan directory: {root}')
@@ -210,6 +223,8 @@ def serve(root, port=8731, open_browser=True, defaults=None, overrides=None):
     ready = state.available()
     if not ready:
         raise ValueError(f'No spectrum.npz under {root}. Run a scan with --save-spectrum first.')
+    if waterfall_style is not None and waterfall_style not in WATERFALL_STYLES:
+        raise ValueError('Unknown waterfall style')
     parser_defaults = iq_scan.parser().parse_args([])
     selected_defaults = {key: getattr(parser_defaults, key) for key in DETECT_ARGS}
     if defaults is not None:
@@ -221,7 +236,7 @@ def serve(root, port=8731, open_browser=True, defaults=None, overrides=None):
         unknown = set(overrides) - set(DETECT_ARGS)
         if unknown:
             raise ValueError('Unknown detection overrides: '+', '.join(sorted(unknown)))
-    server = ThreadingHTTPServer(('127.0.0.1', port), handler_for(state, selected_defaults, overrides))
+    server = ThreadingHTTPServer(('127.0.0.1', port), handler_for(state, selected_defaults, overrides, waterfall_style))
     url = f'http://127.0.0.1:{server.server_port}/'
     print(f'Explorer on {url} — {len(ready)} cached scan(s) under {root}')
     print('Exploration only; use the printed --redetect command to produce a real report. Ctrl-C to stop.')
@@ -266,6 +281,7 @@ tbody tr{cursor:pointer}tbody tr:focus td{outline:1px solid var(--accent);outlin
 <div class="wrap">
 <div class="panel">
   <label>Scan</label><select id="scan"></select>
+  <label>Waterfall style</label><select id="waterfall_style"><option value="magma">Magma</option><option value="youssef">Youssef (SatDump Classic)</option></select>
 <label>Threshold <span class="val" id="vthreshold"></span></label><input type="range" id="threshold" min="1" max="30" step="0.5">
   <label>Min duration (s) <span class="val" id="vmin_duration"></span></label><input type="range" id="min_duration" min="0" max="2" step="0.01">
   <label>DC exclude (Hz) <span class="val" id="vdc_exclude"></span></label><input type="range" id="dc_exclude" min="0" max="20000" step="250">
@@ -282,32 +298,35 @@ tbody tr{cursor:pointer}tbody tr:focus td{outline:1px solid var(--accent);outlin
 </div></div>
 <script>
 const $=id=>document.getElementById(id), KEYS=['threshold','min_duration','dc_exclude','top'];
-let extent=null, sel=null, timer=null, seq=0;
+let extent=null, sel=null, timer=null, seq=0, serverWaterfallStyle=null;
 const hms=s=>{let ms=Math.round(Number(s)*1000);const h=Math.floor(ms/3600000);ms-=h*3600000;const m=Math.floor(ms/60000);ms-=m*60000;const sec=Math.floor(ms/1000);ms-=sec*1000;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${String(ms).padStart(3,'0')}`};
 function show(){KEYS.forEach(k=>$('v'+k).textContent=$(k).value)}
 function schedule(){show();clearTimeout(timer);timer=setTimeout(run,120)}
 async function boot(){
   const r=await fetch('/api/scans'); const d=await r.json();
-  window.scans=Object.fromEntries(d.scans.map(s=>[s.id,s]));window.serverOverrides=d.overrides||{};
+  window.scans=Object.fromEntries(d.scans.map(s=>[s.id,s]));window.serverOverrides=d.overrides||{};serverWaterfallStyle=d.waterfall_style;
   d.scans.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=`${s.name} — ${hms(s.duration_s)}`;$('scan').append(o)});
   KEYS.forEach(k=>{$(k).value=d.defaults[k];$('v'+k).textContent=$(k).value;$(k).addEventListener('input',schedule)});
+  $('waterfall_style').addEventListener('change',()=>{loadImage();run()});
   $('scan').addEventListener('change',load); load();
 }
 function clearResults(message=''){
   extent=null;sel=null;$('ov').replaceChildren();$('rows').replaceChildren();$('cmd').textContent='';$('shaping').textContent='';
   $('flo').textContent='';$('fhi').textContent='';$('msg').className='note';$('msg').textContent=message;
 }
+function loadImage(){$('wf').src='/api/image?scan='+encodeURIComponent($('scan').value)+'&style='+encodeURIComponent($('waterfall_style').value)}
 function load(){
   ++seq;clearResults('Loading scan…');$('wf').removeAttribute('src');
   const scan=window.scans?.[$('scan').value];
-  if(scan){const max=Math.max(0,Math.floor((scan.sample_rate*.45-.001)/250)*250);$('dc_exclude').max=max;
+  if(scan){$('waterfall_style').value=serverWaterfallStyle||scan.waterfall_style||'magma';
+    const max=Math.max(0,Math.floor((scan.sample_rate*.45-.001)/250)*250);$('dc_exclude').max=max;
     const stored=scan.detection_args||{};KEYS.forEach(k=>{if(stored[k]!==undefined)$(k).value=stored[k];if(window.serverOverrides[k]!==undefined)$(k).value=window.serverOverrides[k]});
     if(Number($('dc_exclude').value)>max)$('dc_exclude').value=max;show()}
-  $('wf').src='/api/image?scan='+encodeURIComponent($('scan').value);run()
+  loadImage();run()
 }
 async function run(){
   const mine=++seq, q=new URLSearchParams({scan:$('scan').value});
-  KEYS.forEach(k=>q.set(k,$(k).value));
+  KEYS.forEach(k=>q.set(k,$(k).value));q.set('style',$('waterfall_style').value);
   document.body.classList.add('busy');
   let d;
   try{ d=await (await fetch('/api/detect?'+q)).json(); }

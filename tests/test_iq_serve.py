@@ -103,6 +103,15 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertEqual(body[:8],b'\x89PNG\r\n\x1a\n')
 
+    def test_live_image_and_redetect_command_use_selected_waterfall_style(self):
+        status,mag=self.get('/api/image?scan=run-one&style=magma')
+        self.assertEqual(status,200)
+        status,you=self.get('/api/image?scan=run-one&style=youssef')
+        self.assertEqual(status,200)
+        self.assertNotEqual(mag,you)
+        payload=json.loads(self.get('/api/detect?scan=run-one&style=youssef')[1])
+        self.assertIn('--waterfall-style youssef',payload['command'])
+
     def test_image_uses_analysis_time_extent_for_partial_final_bin(self):
         with patch('matplotlib.axes.Axes.imshow') as image, patch('matplotlib.axes.Axes.set_ylim') as limits:
             iq_serve.waterfall_png(np.zeros((2,2)),1.0,.64)

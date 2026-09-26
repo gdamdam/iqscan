@@ -18,7 +18,7 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 <p>
 <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
 <img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="version 1.6.1" src="https://img.shields.io/badge/version-1.6.1-0f766e?style=for-the-badge">
+<img alt="version 1.6.2" src="https://img.shields.io/badge/version-1.6.2-0f766e?style=for-the-badge">
 </p>
 <p>
 <img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">
@@ -98,6 +98,7 @@ Add these options to your scan command:
 | Inspect possible modulation and supported protocols | `--analyze-signals` |
 | Scan only part of a recording | `--start 30 --duration 15` |
 | Keep a wideband signal out of the level reference | `--reference-band 0.05 0.15` |
+| Change waterfall colors | `--waterfall-style magma` or `--waterfall-style youssef` |
 | Export filtered, centered channels | `--channel-clips 3` |
 | Add satellite frequency hints | `--sat` |
 | Remove generated absolute paths for sharing | `--portable --clips 0` |
@@ -132,6 +133,14 @@ To adjust an existing cached scan:
 
 The browser explorer previews changes. Run its printed command to save a new report.
 See all options with `./scan.sh --help`.
+
+The default `magma` style keeps the existing report colors. `youssef` uses
+SatDump's Classic waterfall palette, credited to Youssef Touil; its style is
+saved with the spectrum and inherited by redetection unless overridden. Meteor
+video accepts the same styles, while `--waterfall-style default` preserves its
+existing video palette. The Youssef colors follow SatDump's [Classic palette
+definition](https://github.com/SatDump/SatDump/blob/master/resources/waterfall/classic.json)
+and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src-core/common/colormaps.cpp).
 
 ---
 

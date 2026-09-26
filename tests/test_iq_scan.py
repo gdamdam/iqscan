@@ -1,10 +1,23 @@
 import json,sys,unittest,tempfile
 from pathlib import Path
+from unittest.mock import patch
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from iqscan import iq_scan
 
 class ScannerTests(unittest.TestCase):
+    def test_reference_band_must_contain_fft_bins_before_reading_samples(self):
+        meta={'sample_rate':32000,'samples':256,'format':'cf32_le'}
+        empty=iq_scan.parser().parse_args(['--fft-size','256','--reference-band','.1','.101'])
+        with patch('iqscan.iq_input.read_samples',side_effect=AssertionError('read before band validation')):
+            with self.assertRaisesRegex(ValueError,'contains no FFT bins'):
+                iq_scan.spectrum(meta,empty)
+        narrow=iq_scan.parser().parse_args(['--fft-size','256','--reference-band','.099','.102'])
+        with patch('iqscan.iq_input.read_samples',return_value=np.ones(256,dtype=np.complex64)):
+            f,norm,reference,dt=iq_scan.spectrum(meta,narrow)
+        self.assertEqual(norm.shape,(1,256))
+        self.assertTrue(np.isfinite(reference).all())
+
     def test_long_event_window_note_is_not_presented_as_receiver_warning(self):
         event={'signal_analysis': {'status': 'unknown', 'warnings': ['long event analyzed in bounded windows']}}
         self.assertIn('note: long event sampled', iq_scan.signal_analysis_brief(event))
@@ -61,7 +74,7 @@ class ScannerTests(unittest.TestCase):
             root=Path(tmp);path=root/'test_32000SPS_137900000Hz.cs8'
             np.clip(np.round(np.column_stack((z.real,z.imag))*128),-128,127).astype('i1').tofile(path)
             base=root/'first'
-            self.assertEqual(iq_scan.main([str(path),'--output',str(base),*shape,*quiet,'--save-spectrum']),0)
+            self.assertEqual(iq_scan.main([str(path),'--output',str(base),*shape,*quiet,'--waterfall-style','youssef','--save-spectrum']),0)
             self.assertTrue((base/'spectrum.npz').exists())
             # The cached matrix reproduces a freshly computed one, so redetect is faithful.
             meta,f,norm,ref,dt,spectrum_args=iq_scan.load_spectrum(base)
@@ -72,6 +85,8 @@ class ScannerTests(unittest.TestCase):
             # A stricter threshold reshapes regions, so redetect must differ from the source scan.
             strict=root/'strict'
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(strict),*quiet,'--threshold','25']),0)
+            strict_report=json.loads((strict/'events.json').read_text(encoding='utf-8'))
+            self.assertEqual(strict_report['metadata']['waterfall_style'],'youssef')
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-top'),*quiet,'--top','0']),2)
             self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(root/'bad-dc'),*quiet,'--dc-exclude','nan']),2)
             first=json.loads((base/'events.json').read_text(encoding='utf-8'))['events']
@@ -82,8 +97,14 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(json.loads((strict/'events.json').read_text(encoding='utf-8'))['metadata']['redetected_from'],str(base.resolve()))
             # FFT shaping comes from the cache even when the command line disagrees.
             ignored=root/'ignored'
-            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(ignored),*quiet,'--fft-size','256']),0)
+            self.assertEqual(iq_scan.main(['--redetect',str(base),'--output',str(ignored),*quiet,'--fft-size','256','--waterfall-style','magma']),0)
             self.assertEqual(json.loads((ignored/'events.json').read_text(encoding='utf-8'))['metadata']['frequency_bin_hz'],meta['frequency_bin_hz'])
+            ignored_report=json.loads((ignored/'events.json').read_text(encoding='utf-8'))
+            self.assertEqual(ignored_report['metadata']['waterfall_style'],'magma')
+            self.assertNotEqual((base/'waterfall.png').read_bytes(),(ignored/'waterfall.png').read_bytes())
+            event_keys=('id','kind','start_s','end_s','center_offset_hz','bandwidth_hz','contrast_db')
+            self.assertEqual([{k:e.get(k) for k in event_keys} for e in first],
+                             [{k:e.get(k) for k in event_keys} for e in ignored_report['events']])
             # A directory without a cached spectrum says what to do about it.
             with self.assertRaisesRegex(ValueError,'--save-spectrum'):iq_scan.load_spectrum(strict)
 

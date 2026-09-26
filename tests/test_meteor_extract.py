@@ -79,3 +79,23 @@ class MeteorVideoFontTests(unittest.TestCase):
             self.skipTest(f'video dependencies unavailable: {exc}')
         font = meteor_video.load_font(('/nonexistent/Arial.ttf', 'no-such-font.ttf'), 21)
         self.assertIsNotNone(font.getbbox('Meteor'))
+
+    def test_video_palette_default_and_shared_styles(self):
+        args = meteor_extract.parser().parse_args(['capture.cs16', '--satellite', 'M2-4'])
+        self.assertEqual(args.waterfall_style, 'default')
+        args = meteor_extract.parser().parse_args(['capture.cs16', '--satellite', 'M2-4',
+                                                   '--waterfall-style', 'magma'])
+        self.assertEqual(args.waterfall_style, 'magma')
+        try:
+            import numpy as np
+            from iqscan.meteor_video import colorize
+        except ImportError as exc:
+            self.skipTest(f'video dependencies unavailable: {exc}')
+        data = np.array([[0., .5, 1.]])
+        original = colorize(data, 0, 1)
+        self.assertEqual(tuple(original[0, 0]), (2, 4, 21))
+        self.assertEqual(tuple(original[0, -1]), (235, 31, 12))
+        self.assertNotEqual(original.tobytes(), colorize(data, 0, 1, 'magma').tobytes())
+        youssef = colorize(data, 0, 1, 'youssef')
+        self.assertEqual(tuple(youssef[0, 0]), (0, 0, 32))
+        self.assertEqual(tuple(youssef[0, -1]), (74, 0, 0))

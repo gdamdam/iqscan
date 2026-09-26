@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2 — 2026-09-26
+
+- Repair the scan launchers' dependency check so an environment missing the
+  required analysis packages installs the project before starting.
+- Reject reference bands that contain no FFT bins before FFT processing.
+- Add selectable `magma` and SatDump Classic/Youssef waterfall colors to reports,
+  event closeups, the live explorer, and Meteor video.
+
 ## 1.6.1 — 2026-09-25
 
 - Bundle WWV/WWVH frequency references for offline HF scans.
