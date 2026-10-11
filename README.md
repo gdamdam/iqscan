@@ -1,14 +1,6 @@
 <div align="center">
 
-```text
-█████    ███     ████    ████    ███    █   █
-  █     █   █   █       █       █   █   ██  █
-  █     █   █   █       █       █   █   ██  █
-  █     █   █    ███    █       █████   █ █ █
-  █     █ █ █       █   █       █   █   █  ██
-  █     █  █        █   █       █   █   █  ██
-█████    ██ █   ████     ████   █   █   █   █
-```
+<h1>📡 iqscan 🔍</h1>
 
 ### Find the signals hiding in an IQ recording.
 
@@ -32,22 +24,11 @@ ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
 
 ---
 
-### Station catalog
+## 🧭 Contents
 
-WWV/WWVH time-station and Meteor frequency references are built in and work
-offline. Download or refresh the broader EiBi shortwave/utility catalog with:
+[Quick start](#-quick-start) · [Install](#-install) · [What you get](#-what-you-get) · [Common tasks](#-common-tasks) · [Meteor LRPT](#-meteor-lrpt-images) · [Station catalog](#-station-catalog) · [Caveats](#-before-interpreting-or-sharing-results) · [Learn more](#-learn-more)
 
-```sh
-iqscan --update-references
-```
-
-Then scan normally: saved stations are matched automatically, with no custom
-JSON file. `--offline-references` uses local data only; `--known-signals eibi`
-also fetches the schedule on a first scan. Failed updates keep the last usable
-catalog. Matches are frequency hints, not confirmed station identities or
-checks against broadcast times. EiBi data is for non-commercial use; see the
-[reference guide](docs/guide.md#band-plans-and-known-signal-hints-downloaded-cached-matched-locally).
-
+---
 
 ## ⚡ Quick start
 
@@ -57,17 +38,42 @@ cd iqscan
 ./scan.sh /path/to/capture.cs8 --sample-rate 500000 --center-frequency 137900000 --open
 ```
 
-Replace the path, sample rate, and center frequency with your recording's values.
-The launcher creates `.venv` and installs dependencies on first use. It saves a
-report under `scans/` and opens it in your browser. Your recording is never modified.
+- Replace the path, sample rate, and center frequency with your recording's values.
+- The launcher creates `.venv` and installs dependencies on first use.
+- The report is saved under `scans/` and opened in your browser.
+- Your recording is never modified.
 
-On Windows use `scan.cmd` with the same arguments (it creates `.venv` and installs
-the package on first use); inspectrum has no official Windows build, so open clips
-with their `.sigmf-meta` in a SigMF-aware viewer such as IQEngine, or under WSL.
+> [!IMPORTANT]
+> **Use the saved sample rate after decimation**, not the receiver input rate.
 
-**Use the saved sample rate after decimation.** Metadata can also come from a
-SigMF/WAV header (including the SDR#/HDSDR `auxi` center frequency) or a filename such as
-`capture_500000SPS_137900000Hz.cs8` or `HDSDR_137900kHz_RF.wav`.
+Metadata can also come from:
+
+- a SigMF or WAV header (including the SDR#/HDSDR `auxi` center frequency)
+- the filename, e.g. `capture_500000SPS_137900000Hz.cs8` or `HDSDR_137900kHz_RF.wav`
+
+---
+
+## 📦 Install
+
+| Platform | How |
+|---|---|
+| macOS / Linux | `./scan.sh` from the checkout (sets itself up on first run) |
+| Windows | `scan.cmd` with the same arguments |
+| Anywhere, as a command | `python3 -m pip install .` then `iqscan …` |
+
+**Requirements:** Python 3.9+. NumPy, SciPy and Matplotlib install automatically.
+
+**Optional tools:**
+
+| Tool | Used for |
+|---|---|
+| [inspectrum](https://github.com/miek/inspectrum) | Opening exported clips |
+| [SatDump](https://github.com/SatDump/SatDump) | Meteor LRPT decoding |
+| `ffmpeg` | Meteor pass video |
+
+> [!NOTE]
+> inspectrum has no official Windows build. Open clips with their `.sigmf-meta`
+> in a SigMF-aware viewer such as IQEngine, or use WSL.
 
 ---
 
@@ -104,6 +110,34 @@ Add these options to your scan command:
 | Remove generated absolute paths for sharing | `--portable --clips 0` |
 | Save a spectrum for later adjustments | `--save-spectrum` |
 
+See all options with `./scan.sh --help`.
+
+### Retune a cached scan
+
+```sh
+./scan.sh --redetect scans/YOUR_SCAN --threshold 9
+./scan.sh --serve --open
+```
+
+The browser explorer previews changes. Run its printed command to save a new report.
+
+### Waterfall styles
+
+| Style | Look |
+|---|---|
+| `magma` (default) | The existing report colors |
+| `youssef` | SatDump's Classic waterfall palette, credited to Youssef Touil |
+| `default` | Meteor video only: keeps its existing video palette |
+
+The style is saved with the spectrum and inherited by redetection unless overridden.
+Meteor video accepts the same styles. The Youssef colors follow SatDump's
+[Classic palette definition](https://github.com/SatDump/SatDump/blob/master/resources/waterfall/classic.json)
+and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src-core/common/colormaps.cpp).
+
+---
+
+## 🛰 Meteor LRPT images
+
 Decode Meteor M2-3 or M2-4 LRPT channel images and telemetry from a stopped
 CS16 recording using SatDump's offline pipeline:
 
@@ -112,35 +146,49 @@ CS16 recording using SatDump's offline pipeline:
   --satellite M2-4 --frequency 137900000 --video
 ```
 
-The new result folder contains `images/`, SatDump's recovered data in `satdump/`,
-`extraction.json`, the decoder log, and (with `--video`) a scrolling-waterfall
-video and poster. The video uses nextpass's configured observer location and
-cached orbital elements to **predict** the satellite track; it does not measure
-pointing from the IQ. Both SatDump 1.x stable and 2.x CLI forms are supported.
-`ffmpeg` is required for video. See [Meteor extraction](docs/guide.md#meteor-lrpt-image-extraction).
+The new result folder contains:
+
+| Item | Contents |
+|---|---|
+| `images/` | Decoded channel images |
+| `satdump/` | SatDump's recovered data |
+| `extraction.json` + decoder log | Run summary and diagnostics |
+| video + poster | Scrolling waterfall (with `--video`, needs `ffmpeg`) |
+
+- Both SatDump 1.x stable and 2.x CLI forms are supported.
+- The video **predicts** the satellite track from nextpass's observer location and
+  cached orbital elements; it does not measure pointing from the IQ.
 
 <p align="center">
 <img alt="Simulated Meteor LRPT pass video: spectrum, scrolling waterfall and predicted sky track" src="docs/meteor-video-simulated.gif" width="640">
 <br><sub><b>Simulation:</b> the waterfall is synthetic; the sky track is a real M2-4 prediction for a neutral example location (Wellington, NZ).</sub>
 </p>
 
-To adjust an existing cached scan:
+More in [Meteor extraction](docs/guide.md#meteor-lrpt-image-extraction).
+
+---
+
+## 📻 Station catalog
+
+WWV/WWVH time-station and Meteor frequency references are built in and work offline.
+Download or refresh the broader EiBi shortwave/utility catalog with:
 
 ```sh
-./scan.sh --redetect scans/YOUR_SCAN --threshold 9
-./scan.sh --serve --open
+iqscan --update-references
 ```
 
-The browser explorer previews changes. Run its printed command to save a new report.
-See all options with `./scan.sh --help`.
+Then scan normally: saved stations are matched automatically, no custom JSON needed.
 
-The default `magma` style keeps the existing report colors. `youssef` uses
-SatDump's Classic waterfall palette, credited to Youssef Touil; its style is
-saved with the spectrum and inherited by redetection unless overridden. Meteor
-video accepts the same styles, while `--waterfall-style default` preserves its
-existing video palette. The Youssef colors follow SatDump's [Classic palette
-definition](https://github.com/SatDump/SatDump/blob/master/resources/waterfall/classic.json)
-and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src-core/common/colormaps.cpp).
+| Option | Effect |
+|---|---|
+| `--offline-references` | Use local data only; never download |
+| `--known-signals eibi` | Also fetch the EiBi schedule on a first scan |
+
+- Failed updates keep the last usable catalog.
+- Matches are frequency hints, not confirmed station identities or broadcast-time checks.
+- EiBi data is for non-commercial use.
+
+See the [reference guide](docs/guide.md#band-plans-and-known-signal-hints-downloaded-cached-matched-locally).
 
 ---
 
@@ -157,7 +205,14 @@ and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src
 
 - [Formats and input metadata](docs/guide.md#what-goes-in)
 - [Analysis, exports, and cached scans](docs/guide.md#everyday-commands)
+- [How detection works](docs/guide.md#how-detection-actually-works--and-where-it-lies-to-you)
 - [Reference catalogs](docs/guide.md#band-plans-and-known-signal-hints-downloaded-cached-matched-locally)
 - [Pip installation](docs/guide.md#quickstart) · [Tests](docs/guide.md#validation) · [Changelog](CHANGELOG.md)
 
 Use [nextpass](https://github.com/gdamdam/nextpass) to plan a satellite recording.
+
+---
+
+## 📄 License
+
+[GPL-3.0-only](LICENSE)
