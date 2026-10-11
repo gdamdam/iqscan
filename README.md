@@ -1,36 +1,23 @@
 <div align="center">
 
-<h1>📡 iqscan 🔍</h1>
+<h1>iqscan</h1>
 
-### Find the signals hiding in an IQ recording.
+<p><strong>Find the signals hiding in an IQ recording.</strong></p>
 
-Point it at a raw capture. Get back an interactive offline report — waterfall,
-ranked events, zoomed spectrograms, and bit-exact IQ clips ready for inspectrum.
+Point it at a raw capture. Get back an interactive offline report: waterfall,
+ranked events, zoomed spectrograms and bit-exact IQ clips ready for inspectrum.
 
 <p>
-<img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1f6feb?style=for-the-badge&logo=python&logoColor=white">
-<img alt="NumPy SciPy Matplotlib" src="https://img.shields.io/badge/numpy·scipy·matplotlib-013243?style=for-the-badge">
-<img alt="version 1.6.2" src="https://img.shields.io/badge/version-1.6.2-0f766e?style=for-the-badge">
-</p>
-<p>
-<img alt="Formats" src="https://img.shields.io/badge/formats-raw%20IQ%20·%20SigMF%20·%20IQ%20WAV-6e40c9?style=flat-square">
-<img alt="Report" src="https://img.shields.io/badge/report-offline%20HTML-0f766e?style=flat-square">
-<img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-334155?style=flat-square">
-<a href="LICENSE"><img alt="GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square"></a>
 <a href="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/gdamdam/iqscan/actions/workflows/tests.yml/badge.svg"></a>
+<img alt="version 1.6.2" src="https://img.shields.io/badge/version-1.6.2-blue">
+<a href="LICENSE"><img alt="GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-green"></a>
 </p>
 
 </div>
 
----
 
-## 🧭 Contents
 
-[Quick start](#-quick-start) · [Install](#-install) · [What you get](#-what-you-get) · [Common tasks](#-common-tasks) · [Meteor LRPT](#-meteor-lrpt-images) · [Station catalog](#-station-catalog) · [Caveats](#-before-interpreting-or-sharing-results) · [Learn more](#-learn-more)
-
----
-
-## ⚡ Quick start
+## Quick start
 
 ```sh
 git clone https://github.com/gdamdam/iqscan.git
@@ -44,16 +31,15 @@ cd iqscan
 - Your recording is never modified.
 
 > [!IMPORTANT]
-> **Use the saved sample rate after decimation**, not the receiver input rate.
+> Use the saved sample rate after decimation, not the receiver input rate.
 
 Metadata can also come from:
 
 - a SigMF or WAV header (including the SDR#/HDSDR `auxi` center frequency)
 - the filename, e.g. `capture_500000SPS_137900000Hz.cs8` or `HDSDR_137900kHz_RF.wav`
 
----
 
-## 📦 Install
+## Install
 
 | Platform | How |
 |---|---|
@@ -61,9 +47,7 @@ Metadata can also come from:
 | Windows | `scan.cmd` with the same arguments |
 | Anywhere, as a command | `python3 -m pip install .` then `iqscan …` |
 
-**Requirements:** Python 3.9+. NumPy, SciPy and Matplotlib install automatically.
-
-**Optional tools:**
+Python 3.9 or newer. NumPy, SciPy and Matplotlib install automatically. Optional tools:
 
 | Tool | Used for |
 |---|---|
@@ -75,9 +59,8 @@ Metadata can also come from:
 > inspectrum has no official Windows build. Open clips with their `.sigmf-meta`
 > in a SigMF-aware viewer such as IQEngine, or use WSL.
 
----
 
-## 🖼 What you get
+## Output
 
 | Output | Purpose |
 |---|---|
@@ -93,9 +76,8 @@ Keep the report folder together; the HTML uses images and files beside it.
 <br><sub>Report for a synthetic 20 s, 500 kS/s recording with FSK bursts, a chirp, a steady carrier and a broadband burst.</sub>
 </p>
 
----
 
-## 🎛 Common tasks
+## Common tasks
 
 Add these options to your scan command:
 
@@ -134,9 +116,8 @@ Meteor video accepts the same styles. The Youssef colors follow SatDump's
 [Classic palette definition](https://github.com/SatDump/SatDump/blob/master/resources/waterfall/classic.json)
 and [colormap implementation](https://github.com/SatDump/SatDump/blob/master/src-core/common/colormaps.cpp).
 
----
 
-## 🛰 Meteor LRPT images
+## Meteor LRPT images
 
 Decode Meteor M2-3 or M2-4 LRPT channel images and telemetry from a stopped
 CS16 recording using SatDump's offline pipeline:
@@ -156,19 +137,18 @@ The new result folder contains:
 | video + poster | Scrolling waterfall (with `--video`, needs `ffmpeg`) |
 
 - Both SatDump 1.x stable and 2.x CLI forms are supported.
-- The video **predicts** the satellite track from nextpass's observer location and
+- The video predicts the satellite track from nextpass's observer location and
   cached orbital elements; it does not measure pointing from the IQ.
 
 <p align="center">
 <img alt="Simulated Meteor LRPT pass video: spectrum, scrolling waterfall and predicted sky track" src="docs/meteor-video-simulated.gif" width="640">
-<br><sub><b>Simulation:</b> the waterfall is synthetic; the sky track is a real M2-4 prediction for a neutral example location (Wellington, NZ).</sub>
+<br><sub>Simulation: the waterfall is synthetic; the sky track is a real M2-4 prediction for a neutral example location (Wellington, NZ).</sub>
 </p>
 
 More in [Meteor extraction](docs/guide.md#meteor-lrpt-image-extraction).
 
----
 
-## 📻 Station catalog
+## Station catalog
 
 WWV/WWVH time-station and Meteor frequency references are built in and work offline.
 Download or refresh the broader EiBi shortwave/utility catalog with:
@@ -190,18 +170,16 @@ Then scan normally: saved stations are matched automatically, no custom JSON nee
 
 See the [reference guide](docs/guide.md#band-plans-and-known-signal-hints-downloaded-cached-matched-locally).
 
----
 
-## 🔎 Before interpreting or sharing results
+## Caveats
 
 - Detections are candidates. Interference and receiver artifacts can appear as signals.
 - Frequency matches are hints; they do not identify a transmitter. Contrast is not calibrated SNR.
 - Reports normally contain local paths and recording metadata. Even with `--portable`, review filenames and metadata before sharing.
 - Band plans download automatically when the center frequency is known. Use `--offline-references` to prevent catalog downloads; IQ data stays local.
 
----
 
-## 📚 Learn more
+## Learn more
 
 - [Formats and input metadata](docs/guide.md#what-goes-in)
 - [Analysis, exports, and cached scans](docs/guide.md#everyday-commands)
@@ -211,8 +189,7 @@ See the [reference guide](docs/guide.md#band-plans-and-known-signal-hints-downlo
 
 Use [nextpass](https://github.com/gdamdam/nextpass) to plan a satellite recording.
 
----
 
-## 📄 License
+## License
 
 [GPL-3.0-only](LICENSE)
